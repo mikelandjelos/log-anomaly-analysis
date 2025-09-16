@@ -2,7 +2,7 @@
 Template parsing component using Drain3
 """
 
-from typing import Dict, List
+from typing import Dict
 
 import polars as pl
 from drain3 import TemplateMiner
@@ -92,15 +92,14 @@ class TemplateParserComponent(BaseComponent):
                 continue
 
             result = self.template_miner.add_log_message(str(content))
+            parameters = self.template_miner.get_parameter_list(
+                result["template_mined"], str(content)
+            )
 
             template_data = {
                 "EventTemplate": result["template_mined"],
                 "TemplateId": result["cluster_id"],
-                "Parameters": str(
-                    self.template_miner.get_parameter_list(
-                        result["template_mined"], str(content)
-                    )
-                ),
+                "Parameters": parameters,
             }
 
             for col in base_columns:

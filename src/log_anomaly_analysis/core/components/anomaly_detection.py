@@ -92,8 +92,15 @@ class AnomalyDetectorComponent(BaseComponent):
         anomaly_scores = np.linalg.norm(projections, axis=1) ** 2
 
         # Compute threshold using chi-squared distribution
-        threshold = chi2.ppf(1 - self.alpha, df=event_matrix.shape[1] - k)
-        logger.info(f"Anomaly threshold: {threshold:.4f}")
+        degrees_of_freedom = event_matrix.shape[1] - k
+        if degrees_of_freedom <= 0:
+            logger.warning(
+                "Chi-squared threshold undefined (degrees of freedom <= 0); defaulting to infinity"
+            )
+            threshold = float("inf")
+        else:
+            threshold = chi2.ppf(1 - self.alpha, df=degrees_of_freedom)
+            logger.info(f"Anomaly threshold: {threshold:.4f}")
 
         # Add results to original data
         result = data.with_columns(

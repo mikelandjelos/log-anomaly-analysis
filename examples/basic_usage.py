@@ -13,7 +13,7 @@ def main():
     """Run basic example"""
 
     # Path to your configuration file
-    config_path = "configs/apache/basic.yaml"
+    config_path = "configs/apache/adaptive.yaml"
 
     # Initialize and run pipeline
     pipeline = ModularPipeline(config_path)

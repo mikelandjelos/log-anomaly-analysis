@@ -54,7 +54,7 @@ class EventMatrixComponent(BaseComponent):
             .len()
             .pivot(
                 index="Window",
-                columns="EventTemplate",
+                on="EventTemplate",
                 values="len",
                 aggregate_function="sum",
             )

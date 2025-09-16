@@ -327,3 +327,5 @@ Thumbs.db
 *.parquet
 *.csv
 !examples/*.csv
+
+docs/chat_transcripts/

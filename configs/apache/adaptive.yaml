@@ -1,6 +1,6 @@
 dataset:
   type: "file"
-  path: "data/raw/Apache/Apache_2k.log"
+  path: "data/raw/loghub_2k/Apache/Apache_2k.log"
   format: "raw"
 
 preprocessing:

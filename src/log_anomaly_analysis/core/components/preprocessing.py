@@ -81,7 +81,7 @@ class PreprocessorComponent(BaseComponent):
             try:
                 parsed = self._parse_single_log(raw_log)
                 if parsed:
-                    parsed["LineNumber"] = i + 1
+                    parsed["LineNumber"] = str(i + 1)
                     processed_logs.append(parsed)
             except Exception as e:
                 logger.warning(f"Error processing line {i+1}: {e}")
