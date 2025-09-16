@@ -1,0 +1,37 @@
+basic_config:
+  dataset:
+    type: "file"
+    path: "tests/fixtures/sample_logs.txt"
+    format: "raw"
+
+  preprocessing:
+    log_pattern: '\[(?P<Timestamp>.+?)\]\s+\[(?P<LogLevel>\w+)]\s+(?P<Content>.+)'
+    timestamp_format: "%a %b %d %H:%M:%S %Y"
+    strict_mode: false
+    require_timestamps: true
+
+  parsing:
+    similarity_threshold: 0.4
+    depth: 4
+    max_children: 100
+    max_clusters: 1024
+    extra_delimiters: ["_"]
+    masking_rules: []
+    mask_prefix: "<:"
+    mask_suffix: ":>"
+
+  windowing:
+    strategy: "fixed"
+    window_size: "5m"
+
+  anomaly_detection:
+    algorithm: "pca_subspace"
+    variance_threshold: 0.95
+    alpha: 0.001
+    use_tfidf: true
+    use_scaling: true
+
+  output:
+    directory: "test_results"
+    save_intermediate: true
+    formats: ["parquet"]
