@@ -81,3 +81,19 @@ class TestWindowingComponent:
 
         with pytest.raises(ValueError, match="Windowing strategy must be specified"):
             WindowingComponent(config)
+
+    def test_regression_scenarios(self):
+        """Regression coverage for sliding/adaptive edge cases"""
+        scenarios = pl.read_json("tests/fixtures/windowing_scenarios.json").to_dicts()
+
+        for scenario in scenarios:
+            config = scenario["windowing"]
+            component = WindowingComponent(config)
+
+            df = pl.DataFrame(scenario["rows"]).with_columns(
+                pl.col("Timestamp").str.to_datetime()
+            )
+
+            result = component.process(df)
+
+            assert len(result) == scenario["expected_windows"], scenario["description"]

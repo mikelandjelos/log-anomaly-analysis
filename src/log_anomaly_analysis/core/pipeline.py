@@ -148,8 +148,14 @@ class ModularPipeline:
             if dtype == pl.List:
                 transforms.append(
                     pl.col(column)
-                    .cast(pl.List(pl.Utf8), strict=False)
-                    .list.join("|")
+                    .map_elements(
+                        lambda v: (
+                            "[" + ",".join(f"'{item}'" for item in v) + "]"
+                            if v is not None and len(v) > 0
+                            else "[]"
+                        ),
+                        return_dtype=pl.Utf8,
+                    )
                     .alias(column)
                 )
             elif dtype == pl.Struct:

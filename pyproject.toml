@@ -101,3 +101,11 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
 ]
+
+[tool.coverage.run]
+omit = [
+    "src/log_anomaly_analysis/cli.py",
+    "src/log_anomaly_analysis/utils/*",
+    "src/log_anomaly_analysis/visualization/*",
+    "**/__init__.py",
+]
