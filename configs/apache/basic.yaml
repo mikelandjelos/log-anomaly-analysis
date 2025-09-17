@@ -1,6 +1,6 @@
 dataset:
   type: "file"
-  path: "data/raw/loghub_2k/Apache/Apache_2k.log"
+  path: "../../data/raw/loghub_2k/Apache/Apache_2k.log"
   format: "raw"
 
 preprocessing:
@@ -27,16 +27,16 @@ parsing:
 
 windowing:
   strategy: "fixed"
-  window_size: "5m"
+  window_size: "4m"
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.85
-  alpha: 0.1
+  variance_threshold: 0.7
+  alpha: 0.05
   use_tfidf: true
   use_scaling: true
 
 output:
-  directory: "data/results/apache_basic"
+  directory: "../../data/results/apache_basic"
   save_intermediate: true
-  formats: ["parquet"]
+  formats: ["parquet", "csv"]

@@ -14,6 +14,12 @@ import seaborn as sns
 from sklearn.manifold import TSNE
 
 
+def _to_pandas(df: pl.DataFrame) -> pd.DataFrame:
+    """Convert a Polars DataFrame to pandas without requiring pyarrow."""
+
+    return pd.DataFrame(df.to_dicts())
+
+
 def plot_timeseries(
     anomaly_df: pl.DataFrame,
     time_based_index: bool = True,
@@ -22,7 +28,7 @@ def plot_timeseries(
     """Plot time series of anomaly scores with anomalies highlighted"""
 
     # Convert to pandas for matplotlib
-    df_pd = anomaly_df.to_pandas()
+    df_pd = _to_pandas(anomaly_df)
 
     if "AnomalyScore" not in df_pd.columns:
         raise ValueError("DataFrame must contain 'AnomalyScore' column")
@@ -113,11 +119,15 @@ def plot_event_heatmap(
     """Plot heatmap of top events by variance"""
 
     # Convert to pandas for plotting
-    df_pd = event_count_matrix.to_pandas()
+    df_pd = _to_pandas(event_count_matrix)
 
     # Get event columns (exclude metadata)
-    metadata_cols = ["WindowStart", "WindowEnd", "LogCount"]
-    event_cols = [col for col in df_pd.columns if col not in metadata_cols]
+    metadata_cols = ["Window", "WindowStart", "WindowEnd", "LogCount"]
+    event_cols = [
+        col
+        for col in df_pd.select_dtypes(include=[np.number]).columns
+        if col not in metadata_cols
+    ]
 
     if not event_cols:
         raise ValueError("No event columns found in matrix")
@@ -158,11 +168,15 @@ def plot_tsne(
     """Plot t-SNE visualization of event count matrix"""
 
     # Convert to pandas/numpy for sklearn
-    df_pd = event_count_matrix.to_pandas()
+    df_pd = _to_pandas(event_count_matrix)
 
-    # Get event columns
-    metadata_cols = ["WindowStart", "WindowEnd", "LogCount"]
-    event_cols = [col for col in df_pd.columns if col not in metadata_cols]
+    # Get event columns (numeric only)
+    metadata_cols = ["Window", "WindowStart", "WindowEnd", "LogCount"]
+    event_cols = [
+        col
+        for col in df_pd.select_dtypes(include=[np.number]).columns
+        if col not in metadata_cols
+    ]
     event_data = df_pd[event_cols].values
 
     if isinstance(anomaly_scores, pl.Series):
@@ -230,10 +244,27 @@ def create_analysis_dashboard(
     results_path = Path(results_dir)
 
     # Load results
-    try:
-        anomalies = pl.read_parquet(results_path / "anomalies.parquet")
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Anomaly results not found in {results_dir}")
+    anomalies = None
+    parquet_path = results_path / "anomalies.parquet"
+    csv_path = results_path / "anomalies.csv"
+    json_path = results_path / "anomalies.json"
+
+    if parquet_path.exists():
+        try:
+            anomalies = pl.read_parquet(parquet_path)
+        except (ModuleNotFoundError, ImportError):
+            anomalies = None
+
+    if anomalies is None and csv_path.exists():
+        anomalies = pl.read_csv(csv_path)
+
+    if anomalies is None and json_path.exists():
+        anomalies = pl.read_json(json_path)
+
+    if anomalies is None:
+        raise FileNotFoundError(
+            f"Anomaly results not found in supported formats under {results_dir}"
+        )
 
     # Create output directory for plots
     plots_dir = results_path / "plots"
@@ -252,7 +283,7 @@ def create_analysis_dashboard(
             )
 
         # Convert to pandas for plotly
-        df_pd = anomalies.to_pandas()
+        df_pd = _to_pandas(anomalies)
 
         # Create subplots
         fig = make_subplots(
@@ -315,7 +346,7 @@ def create_analysis_dashboard(
         fig.suptitle("Log Anomaly Analysis Dashboard", fontsize=16, fontweight="bold")
 
         # Convert to pandas for matplotlib
-        df_pd = anomalies.to_pandas()
+        df_pd = _to_pandas(anomalies)
 
         # Plot 1: Time series
         axes[0, 0].plot(
