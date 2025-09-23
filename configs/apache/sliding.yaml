@@ -32,9 +32,8 @@ windowing:
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.6
-  alpha: 0.05
-  use_tfidf: true
+  variance_threshold: 0.95
+  alpha: 0.001
   use_scaling: true
 
 output:

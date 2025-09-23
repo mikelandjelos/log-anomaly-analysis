@@ -6,7 +6,7 @@ dataset:
 preprocessing:
   log_pattern: '\[(?P<Timestamp>.+?)\]\s+\[(?P<LogLevel>\w+)]\s+(?P<Content>.+)'
   timestamp_format: "%a %b %d %H:%M:%S %Y"
-  strict_mode: false
+  strict_mode: true
   require_timestamps: true
 
 parsing:
@@ -31,9 +31,8 @@ windowing:
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.7
-  alpha: 0.05
-  use_tfidf: true
+  variance_threshold: 0.95
+  alpha: 0.001
   use_scaling: true
 
 output:

@@ -7,7 +7,7 @@ from typing import Dict
 import numpy as np
 import polars as pl
 from loguru import logger
-from scipy.stats import chi2
+from scipy.stats import norm
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.preprocessing import StandardScaler
@@ -25,7 +25,7 @@ class AnomalyDetectorComponent(BaseComponent):
         super().__init__(config)
         self.variance_threshold = config.get("variance_threshold", 0.95)
         self.alpha = config.get("alpha", 0.001)
-        self.use_tfidf = config.get("use_tfidf", True)
+        self.use_tfidf = config.get("use_tfidf", False)
         self.use_scaling = config.get("use_scaling", True)
 
     def process(self, data: pl.DataFrame) -> pl.DataFrame:
@@ -76,31 +76,62 @@ class AnomalyDetectorComponent(BaseComponent):
 
         # Apply PCA
         logger.info(f"Applying PCA with variance threshold: {self.variance_threshold}")
-        pca = PCA(n_components=self.variance_threshold)
-        pca.fit(event_matrix)
+        pca_full = PCA(svd_solver="full")
+        pca_full.fit(event_matrix)
 
-        # Compute anomaly scores using reconstruction error
-        k = pca.n_components_
+        eigenvalues = pca_full.explained_variance_
+        if eigenvalues.size == 0:
+            logger.warning("No variance in data; marking all windows as normal")
+            return data.with_columns(
+                [pl.lit(0.0).alias("AnomalyScore"), pl.lit(False).alias("IsAnomaly")]
+            )
+
+        cumulative_variance = np.cumsum(pca_full.explained_variance_ratio_)
+        k = int(np.searchsorted(cumulative_variance, self.variance_threshold, side="left") + 1)
+        k = max(1, min(k, eigenvalues.shape[0]))
         logger.info(f"Selected {k} principal components")
 
-        P = pca.components_.T  # Principal components matrix
-        I = np.identity(event_matrix.shape[1])  # Identity matrix
+        principal_components = pca_full.components_[:k]
+        P = principal_components.T
+        I = np.identity(event_matrix.shape[1])
 
-        # Projection to anomaly subspace
+        centered = event_matrix - pca_full.mean_
         projection_matrix = I - P @ P.T
-        projections = (projection_matrix @ event_matrix.T).T
-        anomaly_scores = np.linalg.norm(projections, axis=1) ** 2
+        residuals = centered @ projection_matrix
+        anomaly_scores = np.linalg.norm(residuals, axis=1) ** 2
 
-        # Compute threshold using chi-squared distribution
-        degrees_of_freedom = event_matrix.shape[1] - k
-        if degrees_of_freedom <= 0:
+        residual_eigenvalues = eigenvalues[k:]
+        if residual_eigenvalues.size == 0 or np.allclose(residual_eigenvalues, 0):
             logger.warning(
-                "Chi-squared threshold undefined (degrees of freedom <= 0); defaulting to infinity"
+                "Residual eigenvalues degenerate; defaulting anomaly threshold to infinity"
             )
             threshold = float("inf")
         else:
-            threshold = chi2.ppf(1 - self.alpha, df=degrees_of_freedom)
-            logger.info(f"Anomaly threshold: {threshold:.4f}")
+            theta1 = residual_eigenvalues.sum()
+            theta2 = np.sum(residual_eigenvalues ** 2)
+            theta3 = np.sum(residual_eigenvalues ** 3)
+
+            if theta2 <= 0:
+                logger.warning(
+                    "Residual variance too small; defaulting anomaly threshold to infinity"
+                )
+                threshold = float("inf")
+            else:
+                h0 = 1 - (2 * theta1 * theta3) / (3 * theta2 ** 2)
+                if h0 <= 0:
+                    logger.warning(
+                        "Jackson–Mudholkar h0 <= 0; defaulting anomaly threshold to infinity"
+                    )
+                    threshold = float("inf")
+                else:
+                    z_alpha = norm.ppf(1 - self.alpha)
+                    term = (
+                        1
+                        + (z_alpha * np.sqrt(2 * theta2 * h0 ** 2)) / theta1
+                        + (theta2 * h0 * (h0 - 1)) / (theta1 ** 2)
+                    )
+                    threshold = theta1 * (term ** (1 / h0))
+                    logger.info(f"Anomaly threshold (J-M): {threshold:.4f}")
 
         # Add results to original data
         result = data.with_columns(

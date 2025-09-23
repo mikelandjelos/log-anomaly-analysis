@@ -329,3 +329,5 @@ Thumbs.db
 !examples/*.csv
 
 docs/chat_transcripts/
+
+docs/algorithms/*

@@ -68,7 +68,7 @@ class AnomalyDetectionConfig:
     algorithm: str = "pca_subspace"
     variance_threshold: float = 0.95
     alpha: float = 0.001
-    use_tfidf: bool = True
+    use_tfidf: bool = False
     use_scaling: bool = True
 
 
