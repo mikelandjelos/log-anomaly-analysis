@@ -159,11 +159,7 @@ class ModularPipeline:
                     .alias(column)
                 )
             elif dtype == pl.Struct:
-                transforms.append(
-                    pl.col(column)
-                    .struct.json_encode()
-                    .alias(column)
-                )
+                transforms.append(pl.col(column).struct.json_encode().alias(column))
 
         return data.with_columns(transforms) if transforms else data
 

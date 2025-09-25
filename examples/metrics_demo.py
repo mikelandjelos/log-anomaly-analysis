@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from log_anomaly_analysis.core.pipeline import ModularPipeline
+from log_anomaly_analysis.core.modular_pipeline import ModularPipeline
 from log_anomaly_analysis.utils.logging import setup_logging
 from log_anomaly_analysis.utils.metrics import (
     MetricsCollector,

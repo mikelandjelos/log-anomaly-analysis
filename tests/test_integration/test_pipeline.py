@@ -5,10 +5,9 @@ Integration tests for the complete pipeline
 import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
-from log_anomaly_analysis.core.pipeline import ModularPipeline
+from log_anomaly_analysis.core.modular_pipeline import ModularPipeline
 
 
 class TestPipelineIntegration:

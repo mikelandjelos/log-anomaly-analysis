@@ -6,7 +6,6 @@ Example of creating custom pipeline components
 import polars as pl
 
 from log_anomaly_analysis.core.components.base import BaseComponent
-from log_anomaly_analysis.core.pipeline import ModularPipeline
 
 
 class CustomPreprocessor(BaseComponent):
