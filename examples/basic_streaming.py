@@ -30,7 +30,7 @@ OVERRIDE_OUTPUT_DIR: Path | None = None
 
 
 def main() -> None:
-    pipeline = StreamingPipeline(str(CONFIG_PATH))
+    pipeline = StreamingPipeline(CONFIG_PATH)
 
     if OVERRIDE_OUTPUT_DIR is not None:
         OVERRIDE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,7 +63,19 @@ def main() -> None:
         state.save(STATE_OUT)
 
     logger.info("Streaming run complete -> {}", pipeline.output_dir)
-    logger.info("Processed {} chunks", state.chunk_index)
+    logger.info(
+        "Processed {} chunks | {} logs -> {} windows ({} anomalies)",
+        state.chunk_index,
+        state.total_logs,
+        state.total_windows,
+        state.total_anomalies,
+    )
+    anomaly_rate = (
+        (state.total_anomalies / state.total_windows)
+        if state.total_windows > 0
+        else 0.0
+    )
+    logger.info("Anomaly rate: {:.2%}", anomaly_rate)
     logger.info(
         "Visualization artifacts saved under {}",
         pipeline.output_dir / "visual_ready",

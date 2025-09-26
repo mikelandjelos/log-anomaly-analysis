@@ -7,6 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 import polars as pl
@@ -22,102 +23,14 @@ from .config.models import PipelineConfig
 
 
 @dataclass
-class VisualizationAccumulator:
-    """Accumulates anomalies/event matrices for visualization."""
-
-    anomalies: List[pl.DataFrame] = field(default_factory=list)
-    event_matrices: List[pl.DataFrame] = field(default_factory=list)
-    event_matrix_columns: List[str] = field(default_factory=list)
-
-    def update(self, anomalies: pl.DataFrame, event_matrix: pl.DataFrame) -> None:
-        if anomalies is not None and not anomalies.is_empty():
-            self.anomalies.append(anomalies)
-        if event_matrix is not None and not event_matrix.is_empty():
-            aligned = self._align_event_matrix(event_matrix)
-            self.event_matrices.append(aligned)
-
-    def merge(self, other: "VisualizationAccumulator") -> None:
-        self.anomalies.extend(other.anomalies)
-        self.event_matrices.extend(other.event_matrices)
-
-    def anomalies_df(self) -> pl.DataFrame:
-        if not self.anomalies:
-            return pl.DataFrame()
-        return pl.concat(self.anomalies, how="vertical_relaxed")
-
-    def event_matrix_df(self) -> pl.DataFrame:
-        if not self.event_matrices:
-            return pl.DataFrame()
-        return pl.concat(self.event_matrices, how="vertical_relaxed")
-
-    def save(self, directory: Path, formats: Sequence[str]) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        anomalies = self.anomalies_df()
-        event_matrix = self.event_matrix_df()
-
-        if anomalies.is_empty() and event_matrix.is_empty():
-            return
-
-        for fmt in formats:
-            if fmt == "parquet":
-                if not anomalies.is_empty():
-                    anomalies.write_parquet(directory / "anomalies.parquet")
-                if not event_matrix.is_empty():
-                    event_matrix.write_parquet(directory / "event_matrix.parquet")
-            elif fmt == "csv":
-                if not anomalies.is_empty():
-                    anomalies.write_csv(directory / "anomalies.csv")
-                if not event_matrix.is_empty():
-                    event_matrix.write_csv(directory / "event_matrix.csv")
-            elif fmt == "json":
-                if not anomalies.is_empty():
-                    anomalies.write_json(directory / "anomalies.json")
-                if not event_matrix.is_empty():
-                    event_matrix.write_json(directory / "event_matrix.json")
-
-    def _align_event_matrix(self, data: pl.DataFrame) -> pl.DataFrame:
-        columns = list(data.columns)
-        if not self.event_matrix_columns:
-            self.event_matrix_columns = columns
-            return data
-
-        union = []
-        seen = set()
-        for col in self.event_matrix_columns + columns:
-            if col not in seen:
-                seen.add(col)
-                union.append(col)
-
-        if union != self.event_matrix_columns:
-            self.event_matrices = [
-                self._reselect_event_columns(existing, union) for existing in self.event_matrices
-            ]
-            self.event_matrix_columns = union
-
-        return self._reselect_event_columns(data, self.event_matrix_columns)
-
-    @staticmethod
-    def _reselect_event_columns(data: pl.DataFrame, columns: Sequence[str]) -> pl.DataFrame:
-        metadata_cols = {"Window", "WindowStart", "WindowEnd", "LogCount"}
-        expressions = []
-        for column in columns:
-            if column in data.columns:
-                expressions.append(pl.col(column).alias(column))
-            else:
-                default = pl.lit(None) if column in metadata_cols else pl.lit(0)
-                expressions.append(default.alias(column))
-        return data.select(expressions)
-
-
-@dataclass
 class StreamingPipelineState:
     """Holds incremental state between streaming batches."""
 
     template_remainder: pl.DataFrame = field(default_factory=pl.DataFrame)
     chunk_index: int = 0
-    visualization: VisualizationAccumulator = field(
-        default_factory=VisualizationAccumulator
-    )
+    total_logs: int = 0
+    total_windows: int = 0
+    total_anomalies: int = 0
 
     def save(self, path: Union[str, Path]) -> None:
         with open(path, "wb") as fh:
@@ -179,15 +92,15 @@ class StreamingResultWriter:
             if dtype == pl.List:
                 transforms.append(
                     pl.col(column)
-                        .map_elements(
-                            lambda v: (
-                                "[" + ",".join(f"'{item}'" for item in v) + "]"
-                                if v is not None and len(v) > 0
-                                else "[]"
-                            ),
-                            return_dtype=pl.Utf8,
-                        )
-                        .alias(column)
+                    .map_elements(
+                        lambda v: (
+                            "[" + ",".join(f"'{item}'" for item in v) + "]"
+                            if v is not None and len(v) > 0
+                            else "[]"
+                        ),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias(column)
                 )
             elif dtype == pl.Struct:
                 transforms.append(pl.col(column).struct.json_encode().alias(column))
@@ -198,7 +111,7 @@ class StreamingResultWriter:
 class StreamingPipeline:
     """Incremental pipeline that processes logs in batches."""
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str | Path):
         self.config: PipelineConfig = load_config(config_path)
         self._initialize_components()
 
@@ -246,6 +159,8 @@ class StreamingPipeline:
         if preprocessed.is_empty():
             return {}, state
 
+        state.total_logs += len(preprocessed)
+
         parsed_chunk = self.parser.process(preprocessed)
 
         if not state.template_remainder.is_empty():
@@ -276,7 +191,9 @@ class StreamingPipeline:
                 return {}, state
 
             last_window_value = unique_windows[-1]
-            completed_windowed = windowed.filter(pl.col(window_col) != last_window_value)
+            completed_windowed = windowed.filter(
+                pl.col(window_col) != last_window_value
+            )
 
             window_size = self.config.windowing.window_size or "5m"
             template_windows = templates_combined.with_columns(
@@ -297,9 +214,7 @@ class StreamingPipeline:
             return {}, state
 
         anomalies = self.anomaly_detector.process(event_matrix)
-        anomalies_vis = self._prepare_anomalies_for_visuals(anomalies)
-
-        state.visualization.update(anomalies_vis, event_matrix)
+        self._update_metrics(state, event_matrix, anomalies)
 
         results = {
             "windowed": completed_windowed,
@@ -324,10 +239,18 @@ class StreamingPipeline:
         if state is None:
             state = StreamingPipelineState()
 
+        start_time = perf_counter()
+
         for raw_chunk in chunk_iterator:
             _, state = self.process_chunk(raw_chunk, state=state, writer=writer)
 
         self._flush_remainder(state, writer)
+
+        duration = perf_counter() - start_time
+        throughput = state.total_logs / duration if duration > 0 else 0.0
+        logger.info(
+            f"Streaming summary: {state.total_logs} logs -> {state.total_windows} windows ({state.total_anomalies} anomalies) in {duration:.2f}s ({throughput:.1f} logs/s)",
+        )
 
         return state
 
@@ -336,8 +259,7 @@ class StreamingPipeline:
         state: StreamingPipelineState,
         directory_name: str = "visual_ready",
     ) -> None:
-        target = self.output_dir / directory_name
-        state.visualization.save(target, self.config.output.formats)
+        return
 
     def _flush_remainder(
         self,
@@ -360,8 +282,7 @@ class StreamingPipeline:
             return
 
         anomalies = self.anomaly_detector.process(event_matrix)
-        anomalies_vis = self._prepare_anomalies_for_visuals(anomalies)
-        state.visualization.update(anomalies_vis, event_matrix)
+        self._update_metrics(state, event_matrix, anomalies)
 
         if writer is not None:
             writer.append("windowed", windowed)
@@ -369,6 +290,20 @@ class StreamingPipeline:
             writer.append("anomalies", anomalies)
 
         state.template_remainder = pl.DataFrame()
+
+    @staticmethod
+    def _update_metrics(
+        state: StreamingPipelineState,
+        event_matrix: pl.DataFrame,
+        anomalies: pl.DataFrame,
+    ) -> None:
+        state.total_windows += len(event_matrix)
+        if "IsAnomaly" in anomalies.columns:
+            try:
+                anomaly_count = int(anomalies["IsAnomaly"].sum())
+            except TypeError:
+                anomaly_count = int(anomalies["IsAnomaly"].cast(pl.Int64).sum())
+            state.total_anomalies += anomaly_count
 
     @staticmethod
     def _prepare_anomalies_for_visuals(data: pl.DataFrame) -> pl.DataFrame:

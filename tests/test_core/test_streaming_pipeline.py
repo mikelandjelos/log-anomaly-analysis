@@ -67,8 +67,5 @@ def test_streaming_pipeline_flushes_remainder(sample_apache_logs, sample_config,
     state = pipeline.process_stream(chunks, state=StreamingPipelineState(), writer=None)
 
     assert state.template_remainder.is_empty(), "Remainder should be cleared"
-    assert state.visualization.anomalies, "Anomaly results should be accumulated"
-    assert state.visualization.event_matrices, "Event matrix results should be accumulated"
-
     dataset_chunks = list(stream_file_dataset(pipeline.config, chunk_size=2))
     assert len(dataset_chunks) >= 2, "Chunk helper should yield multiple chunks"

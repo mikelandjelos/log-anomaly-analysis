@@ -16,7 +16,7 @@ from .models import (
 )
 
 
-def load_config(config_path: str) -> PipelineConfig:
+def load_config(config_path: str | Path) -> PipelineConfig:
     """Load configuration from YAML file"""
 
     config_file = Path(config_path)
