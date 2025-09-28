@@ -1,4 +1,18 @@
 repos:
+  - repo: local
+    hooks:
+      - id: log-anomaly-analysis-tests
+        name: log-anomaly-analysis tests
+        entry: bash -c "cd log-anomaly-analysis && poetry run pytest"
+        language: system
+        files: ^log-anomaly-analysis/
+        pass_filenames: false
+      - id: drain3-service-tests
+        name: drain3-service tests
+        entry: bash -c "cd services/drain3-service && if ls test_*.py tests/ 2>/dev/null; then poetry run pytest; else echo 'No tests found, skipping'; fi"
+        language: system
+        files: ^services/drain3-service/
+        pass_filenames: false
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
@@ -7,37 +21,3 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict
-      - id: debug-statements
-
-  # - repo: https://github.com/psf/black
-  #   rev: 23.7.0
-  #   hooks:
-  #     - id: black
-  #       language_version: python3
-
-  # - repo: https://github.com/pycqa/isort
-  #   rev: 5.12.0
-  #   hooks:
-  #     - id: isort
-
-  # - repo: https://github.com/pycqa/flake8
-  #   rev: 6.0.0
-  #   hooks:
-  #     - id: flake8
-  #       args: [--max-line-length=88, --extend-ignore=E203]
-  #       exclude: README.md
-
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.5.1
-  #   hooks:
-  #     - id: mypy
-  #       additional_dependencies: [types-PyYAML]
-
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        entry: poetry run pytest
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]

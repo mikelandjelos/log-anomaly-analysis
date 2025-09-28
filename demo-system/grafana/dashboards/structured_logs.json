@@ -1,0 +1,32 @@
+{
+  "id": null,
+  "uid": "stream-logs",
+  "title": "Structured Logs",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "logs",
+      "title": "Live Logs",
+      "id": 1,
+      "datasource": {
+        "type": "loki",
+        "uid": "-100"
+      },
+      "targets": [
+        {
+          "expr": "{datastream=\"bgl\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    }
+  ]
+}

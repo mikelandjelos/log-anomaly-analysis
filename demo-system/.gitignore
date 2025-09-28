@@ -1,0 +1,8 @@
+# Local poetry virtualenvs
+.venv/
+
+# Loki / Grafana data
+loki/chunks/
+loki/index/
+grafana/provisioning/
+grafana/plugins/

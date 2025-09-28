@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./loki/config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+
+  drain3:
+    build: ../services/drain3-service
+    volumes:
+      - ../log-anomaly-analysis/configs:/configs:ro
+    environment:
+      - LOGURU_LEVEL=INFO
+    ports:
+      - "8000:8000"
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.3
+    volumes:
+      - ./logstash/pipelines:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    depends_on:
+      - drain3
+    ports:
+      - "5044:5044"
+    command: ["-f", "/usr/share/logstash/pipeline"]
+
+volumes:
+  loki-data:
+  grafana-data:
