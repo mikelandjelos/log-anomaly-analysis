@@ -13,7 +13,7 @@ parsing:
   similarity_threshold: 0.4
   depth: 4
   max_children: 100
-  max_clusters: 2048
+  max_clusters: 1024
   extra_delimiters: ["_", ":", "/", "-"]
   masking_rules:
     - regex_pattern: '(\d+)'
@@ -25,11 +25,11 @@ parsing:
 
 windowing:
   strategy: "fixed"
-  window_size: "5m"
+  window_size: "10m"
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.99
+  variance_threshold: 0.95
   alpha: 0.001
   use_tfidf: false
   use_scaling: true
