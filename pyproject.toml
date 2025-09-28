@@ -49,6 +49,8 @@ jupyter = "^1.1.1"
 matplotlib = "^3.10.6"
 seaborn = "^0.13.2"
 plotly = "^6.3.0"
+pandas = "^2.3.2"
+pyarrow = "^21.0.0"
 
 
 [tool.poetry.group.docs.dependencies]
@@ -98,4 +100,12 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+omit = [
+    "src/log_anomaly_analysis/cli.py",
+    "src/log_anomaly_analysis/utils/*",
+    "src/log_anomaly_analysis/visualization/*",
+    "**/__init__.py",
 ]

@@ -50,20 +50,21 @@ class EventMatrixComponent(BaseComponent):
 
         # Create pivot table
         event_matrix = (
-            expanded_df.group_by(["Window", "EventTemplate"])
+            expanded_df.group_by(["Window", "EventTemplate"], maintain_order=True)
             .len()
             .pivot(
                 index="Window",
-                columns="EventTemplate",
+                on="EventTemplate",
                 values="len",
                 aggregate_function="sum",
             )
             .fill_null(0)
+            .sort("Window")
         )
 
         # Add metadata columns if they exist
         if "WindowStart" in expanded_df.columns:
-            metadata = expanded_df.group_by("Window").agg(
+            metadata = expanded_df.group_by("Window", maintain_order=True).agg(
                 [
                     pl.col("WindowStart").first(),
                     pl.col("WindowEnd").first(),
@@ -71,7 +72,9 @@ class EventMatrixComponent(BaseComponent):
                 ]
             )
 
-            event_matrix = event_matrix.join(metadata, on="Window", how="left")
+            event_matrix = (
+                event_matrix.join(metadata, on="Window", how="left").sort("Window")
+            )
 
         logger.info(f"Created event matrix with shape: {event_matrix.shape}")
         return event_matrix

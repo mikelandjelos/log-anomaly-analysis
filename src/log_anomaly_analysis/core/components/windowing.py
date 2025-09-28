@@ -3,7 +3,8 @@ Windowing component with multiple strategies
 """
 
 import re
-from typing import Dict, List
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
 import polars as pl
 from loguru import logger
@@ -83,15 +84,27 @@ class WindowingComponent(BaseComponent):
         window_seconds = self._parse_duration(window_size)
         step_seconds = self._parse_duration(step_size)
 
-        start_time = data["Timestamp"].min()
-        end_time = data["Timestamp"].max()
+        if window_seconds <= 0:
+            raise ValueError("window_size must represent a duration greater than zero")
+
+        if step_seconds <= 0:
+            raise ValueError("step_size must represent a duration greater than zero")
+
+        start_time: Optional[datetime] = data["Timestamp"].min()
+        end_time: Optional[datetime] = data["Timestamp"].max()
+
+        if start_time is None or end_time is None:
+            return pl.DataFrame()
+
+        current_start = start_time
+        current_end_bound = end_time
 
         windows = []
-        current_start = start_time
+        window_delta = timedelta(seconds=window_seconds)
+        step_delta = timedelta(seconds=step_seconds)
 
-        # TODO: This has a type error
-        while current_start + pl.duration(seconds=window_seconds) <= end_time:
-            current_end = current_start + pl.duration(seconds=window_seconds)
+        while current_start <= current_end_bound:
+            current_end = current_start + window_delta
 
             window_data = data.filter(
                 (pl.col("Timestamp") >= current_start)
@@ -114,7 +127,7 @@ class WindowingComponent(BaseComponent):
                 }
                 windows.append(window_info)
 
-            current_start = current_start + pl.duration(seconds=step_seconds)
+            current_start = current_start + step_delta
 
         return pl.DataFrame(windows) if windows else pl.DataFrame()
 
@@ -176,6 +189,8 @@ class WindowingComponent(BaseComponent):
             return pl.DataFrame()
 
         data_sorted = data.sort("Timestamp")
+        if data_sorted.is_empty():
+            return pl.DataFrame()
         windows = []
         start_idx = 0
 
@@ -183,13 +198,20 @@ class WindowingComponent(BaseComponent):
             end_idx = min(start_idx + target_logs, len(data_sorted))
 
             window_data = data_sorted[start_idx:end_idx]
+            if window_data.is_empty():
+                break
+
             window_start = window_data["Timestamp"][0]
             window_end = window_data["Timestamp"][-1]
+
+            if window_start is None or window_end is None:
+                start_idx = end_idx
+                continue
 
             duration_seconds = (window_end - window_start).total_seconds()
 
             if duration_seconds < min_window_seconds and end_idx < len(data_sorted):
-                target_end_time = window_start + pl.duration(seconds=min_window_seconds)
+                target_end_time = window_start + timedelta(seconds=min_window_seconds)
                 extended_data = data_sorted.filter(
                     (pl.col("Timestamp") >= window_start)
                     & (pl.col("Timestamp") <= target_end_time)
@@ -198,7 +220,7 @@ class WindowingComponent(BaseComponent):
                     window_data = extended_data
                     end_idx = start_idx + len(window_data)
             elif duration_seconds > max_window_seconds:
-                target_end_time = window_start + pl.duration(seconds=max_window_seconds)
+                target_end_time = window_start + timedelta(seconds=max_window_seconds)
                 truncated_data = data_sorted.filter(
                     (pl.col("Timestamp") >= window_start)
                     & (pl.col("Timestamp") <= target_end_time)

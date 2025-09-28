@@ -1,0 +1,33 @@
+[
+  {
+    "description": "Sliding window with final events spanning last step",
+    "windowing": {
+      "strategy": "sliding",
+      "window_size": "5m",
+      "step_size": "2m"
+    },
+    "rows": [
+      {"Timestamp": "2024-01-01T00:00:00", "EventTemplate": "A", "TemplateId": 1},
+      {"Timestamp": "2024-01-01T00:02:00", "EventTemplate": "B", "TemplateId": 2},
+      {"Timestamp": "2024-01-01T00:06:30", "EventTemplate": "C", "TemplateId": 3}
+    ],
+    "expected_windows": 4
+  },
+  {
+    "description": "Adaptive window hitting min and max thresholds",
+    "windowing": {
+      "strategy": "adaptive",
+      "target_logs_per_window": 2,
+      "min_window_size": "2m",
+      "max_window_size": "6m"
+    },
+    "rows": [
+      {"Timestamp": "2024-01-01T00:00:00", "EventTemplate": "X", "TemplateId": 10},
+      {"Timestamp": "2024-01-01T00:00:30", "EventTemplate": "X", "TemplateId": 10},
+      {"Timestamp": "2024-01-01T00:03:00", "EventTemplate": "Y", "TemplateId": 20},
+      {"Timestamp": "2024-01-01T00:07:30", "EventTemplate": "Y", "TemplateId": 20},
+      {"Timestamp": "2024-01-01T00:10:00", "EventTemplate": "Z", "TemplateId": 30}
+    ],
+    "expected_windows": 3
+  }
+]

@@ -1,19 +1,19 @@
 dataset:
   type: "file"
-  path: "../../data/raw/loghub_2k/Apache/Apache_2k.log"
+  path: "../../data/raw/loghub_full/Apache/Apache_full.log"
   format: "raw"
 
 preprocessing:
   log_pattern: '\[(?P<Timestamp>.+?)\]\s+\[(?P<LogLevel>\w+)]\s+(?P<Content>.+)'
   timestamp_format: "%a %b %d %H:%M:%S %Y"
-  strict_mode: false
+  strict_mode: true
   require_timestamps: true
 
 parsing:
-  similarity_threshold: 0.4
+  similarity_threshold: 0.45
   depth: 4
   max_children: 100
-  max_clusters: 1024
+  max_clusters: 2048
   extra_delimiters: ["_", ":", "/"]
   masking_rules:
     - regex_pattern: '(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
@@ -26,18 +26,17 @@ parsing:
   mask_suffix: ":>"
 
 windowing:
-  strategy: "adaptive"
-  target_logs_per_window: 40
-  min_window_size: "2m"
-  max_window_size: "8m"
+  strategy: "fixed"
+  window_size: "4m"
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.6
-  alpha: 0.05
+  variance_threshold: 0.95
+  alpha: 0.001
+  use_tfidf: false
   use_scaling: true
 
 output:
-  directory: "../../data/results/apache_adaptive"
+  directory: "../../data/results/apache_streaming"
   save_intermediate: true
-  formats: ["parquet", "csv"]
+  formats: ["parquet", "csv", "json"]

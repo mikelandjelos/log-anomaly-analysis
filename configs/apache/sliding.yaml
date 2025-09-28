@@ -1,6 +1,6 @@
 dataset:
   type: "file"
-  path: "data/raw/Apache/Apache_2k.log"
+  path: "../../data/raw/loghub_2k/Apache/Apache_2k.log"
   format: "raw"
 
 preprocessing:
@@ -27,17 +27,16 @@ parsing:
 
 windowing:
   strategy: "sliding"
-  window_size: "10m"
+  window_size: "6m"
   step_size: "2m"
 
 anomaly_detection:
   algorithm: "pca_subspace"
-  variance_threshold: 0.90
-  alpha: 0.01
-  use_tfidf: true
+  variance_threshold: 0.95
+  alpha: 0.001
   use_scaling: true
 
 output:
-  directory: "data/results/apache_sliding"
+  directory: "../../data/results/apache_sliding"
   save_intermediate: true
   formats: ["parquet", "csv"]

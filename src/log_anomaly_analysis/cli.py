@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from .core.pipeline import ModularPipeline
+from .core.modular_pipeline import ModularPipeline
 from .visualization.plots import create_analysis_dashboard
 
 console = Console()

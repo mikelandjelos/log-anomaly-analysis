@@ -2,6 +2,7 @@
 Main pipeline orchestrator
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -25,9 +26,12 @@ class ModularPipeline:
         self.config = load_config(config_path)
         self._initialize_components()
 
-        # Setup output directory
-        self.output_dir = Path(self.config.output.directory)
+        # Setup timestamped output directory
+        base_output = Path(self.config.output.directory)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.output_dir = base_output / timestamp
         self.output_dir.mkdir(exist_ok=True, parents=True)
+        self.run_timestamp = timestamp
 
         logger.info(f"Pipeline initialized with output directory: {self.output_dir}")
 
@@ -106,6 +110,7 @@ class ModularPipeline:
 
         # Generate summary
         summary = self._generate_summary(results)
+        summary["run_timestamp"] = self.run_timestamp
         logger.info("Pipeline completed successfully!")
 
         return results, summary
@@ -117,20 +122,46 @@ class ModularPipeline:
         for stage, data in results.items():
             if not data.is_empty():
                 for fmt in self.config.output.formats:
+                    prepared = self._prepare_for_format(data, fmt)
                     output_file: Optional[Path] = None
                     if fmt == "parquet":
                         output_file = self.output_dir / f"{stage}.parquet"
-                        data.write_parquet(output_file)
+                        prepared.write_parquet(output_file)
                     elif fmt == "json":
                         output_file = self.output_dir / f"{stage}.json"
-                        data.write_json(output_file)
+                        prepared.write_json(output_file)
                     elif fmt == "csv":
                         output_file = self.output_dir / f"{stage}.csv"
-                        data.write_csv(output_file)
+                        prepared.write_csv(output_file)
 
                     logger.info(
                         f"Saved {stage} results to '{output_file or 'Not Given'}'"
                     )
+
+    def _prepare_for_format(self, data: pl.DataFrame, fmt: str) -> pl.DataFrame:
+        """Adjust dataframe for format-specific constraints."""
+        if fmt != "csv":
+            return data
+
+        transforms = []
+        for column, dtype in zip(data.columns, data.dtypes):
+            if dtype == pl.List:
+                transforms.append(
+                    pl.col(column)
+                    .map_elements(
+                        lambda v: (
+                            "[" + ",".join(f"'{item}'" for item in v) + "]"
+                            if v is not None and len(v) > 0
+                            else "[]"
+                        ),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias(column)
+                )
+            elif dtype == pl.Struct:
+                transforms.append(pl.col(column).struct.json_encode().alias(column))
+
+        return data.with_columns(transforms) if transforms else data
 
     def _generate_summary(self, results: Dict[str, pl.DataFrame]) -> Dict[str, Any]:
         """Generate pipeline summary statistics"""

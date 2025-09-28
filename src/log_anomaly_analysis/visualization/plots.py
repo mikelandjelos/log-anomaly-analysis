@@ -13,6 +13,25 @@ import polars as pl
 import seaborn as sns
 from sklearn.manifold import TSNE
 
+NUMERIC_DTYPES = {
+    pl.Int8,
+    pl.Int16,
+    pl.Int32,
+    pl.Int64,
+    pl.UInt8,
+    pl.UInt16,
+    pl.UInt32,
+    pl.UInt64,
+    pl.Float32,
+    pl.Float64,
+}
+
+
+def _to_pandas(df: pl.DataFrame) -> pd.DataFrame:
+    """Convert a Polars DataFrame to pandas without requiring pyarrow."""
+
+    return pd.DataFrame(df.to_dicts())
+
 
 def plot_timeseries(
     anomaly_df: pl.DataFrame,
@@ -21,52 +40,67 @@ def plot_timeseries(
 ):
     """Plot time series of anomaly scores with anomalies highlighted"""
 
-    # Convert to pandas for matplotlib
-    df_pd = anomaly_df.to_pandas()
+    df_pd = _to_pandas(anomaly_df).copy()
 
     if "AnomalyScore" not in df_pd.columns:
         raise ValueError("DataFrame must contain 'AnomalyScore' column")
 
-    anomaly_scores = df_pd["AnomalyScore"]
-    is_anomaly = df_pd.get("IsAnomaly", pd.Series([False] * len(df_pd)))
+    anomaly_scores = df_pd["AnomalyScore"].astype(float)
+    is_anomaly = df_pd.get("IsAnomaly", pd.Series([False] * len(df_pd))).astype(bool)
+
+    if "WindowStart" in df_pd.columns:
+        window_labels = pd.to_datetime(df_pd["WindowStart"], errors="coerce")
+    elif "Window" in df_pd.columns:
+        window_labels = pd.to_datetime(df_pd["Window"], errors="coerce")
+    else:
+        window_labels = pd.Series(range(len(df_pd)), dtype=float)
+
+    x_positions = np.arange(len(df_pd))
 
     plt.figure(figsize=(12, 6))
     plt.plot(
-        anomaly_scores.index,
-        anomaly_scores,
-        color="blue",
-        alpha=0.7,
-        label="Anomaly Score",
+        x_positions, anomaly_scores, color="blue", alpha=0.7, label="Anomaly Score"
     )
 
-    # Highlight anomalies
-    anomaly_points = df_pd[is_anomaly].index
-    if len(anomaly_points) > 0:
+    if is_anomaly.any():
+        anomaly_points = df_pd[is_anomaly]
+        anomaly_x = x_positions[is_anomaly.values]  # type: ignore
         plt.scatter(
-            anomaly_points,
-            df_pd.loc[anomaly_points, "AnomalyScore"],
+            anomaly_x,
+            anomaly_points["AnomalyScore"],
             color="red",
             s=50,
             label="Anomaly",
             zorder=5,
         )
 
-    # Add threshold line if anomalies exist
-    if is_anomaly.any():
-        threshold = df_pd[is_anomaly]["AnomalyScore"].min() * 0.95
+        threshold = anomaly_points["AnomalyScore"].min() * 0.95
         plt.axhline(
             y=threshold, color="r", linestyle="--", alpha=0.5, label="Threshold"
         )
 
     plt.title("Anomaly Scores Over Windows")
-    plt.xlabel("Window")
+    plt.xlabel(
+        "Window Start"
+        if isinstance(window_labels.iloc[0], pd.Timestamp)
+        else "Window Index"
+    )
     plt.ylabel("Anomaly Score")
     plt.legend()
     plt.grid(True, alpha=0.3)
 
-    if time_based_index and "WindowStart" in df_pd.columns:
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
-        plt.gcf().autofmt_xdate()
+    if (
+        time_based_index
+        and isinstance(window_labels.iloc[0], pd.Timestamp)
+        and not window_labels.isna().all()
+    ):
+        ax = plt.gca()
+        tick_positions = np.linspace(0, len(df_pd) - 1, min(len(df_pd), 10), dtype=int)
+        tick_labels = window_labels.iloc[tick_positions].dt.strftime("%Y-%m-%d %H:%M")
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    else:
+        plt.xticks(rotation=45)
 
     plt.tight_layout()
 
@@ -113,11 +147,25 @@ def plot_event_heatmap(
     """Plot heatmap of top events by variance"""
 
     # Convert to pandas for plotting
-    df_pd = event_count_matrix.to_pandas()
+    df_pd = _to_pandas(event_count_matrix).copy()
 
-    # Get event columns (exclude metadata)
-    metadata_cols = ["WindowStart", "WindowEnd", "LogCount"]
-    event_cols = [col for col in df_pd.columns if col not in metadata_cols]
+    time_col = None
+    if "WindowStart" in df_pd.columns:
+        df_pd["WindowStart"] = pd.to_datetime(df_pd["WindowStart"], errors="coerce")
+        time_col = "WindowStart"
+    elif "Window" in df_pd.columns:
+        df_pd["Window"] = pd.to_datetime(df_pd["Window"], errors="coerce")
+        time_col = "Window"
+
+    if time_col is not None:
+        df_pd = df_pd.sort_values(time_col)
+
+    metadata_cols = {"Window", "WindowStart", "WindowEnd", "LogCount"}
+    event_cols = [
+        col
+        for col, dtype in zip(df_pd.columns, event_count_matrix.dtypes)
+        if pd.api.types.is_numeric_dtype(df_pd[col]) and col not in metadata_cols
+    ]
 
     if not event_cols:
         raise ValueError("No event columns found in matrix")
@@ -128,18 +176,27 @@ def plot_event_heatmap(
     top_events = event_data.var().sort_values(ascending=False).head(15).index.tolist()
 
     plt.figure(figsize=(12, 8))
-    sns.heatmap(
+    heatmap = sns.heatmap(
         event_data[top_events].T,
         cmap="YlOrRd",
-        xticklabels=30 if len(event_data) > 30 else True,
+        xticklabels=False,
         yticklabels=True,
         cbar_kws={"label": "Event Count"},
     )
 
+    if time_col is not None:
+        tick_positions = np.linspace(0, len(df_pd) - 1, min(len(df_pd), 10), dtype=int)
+        heatmap.set_xticks(tick_positions)
+        heatmap.set_xticklabels(
+            df_pd.iloc[tick_positions][time_col].dt.strftime("%Y-%m-%d %H:%M"),
+            rotation=45,
+            ha="right",
+        )
+    else:
+        heatmap.set_xticklabels(heatmap.get_xticklabels(), rotation=45, ha="right")
     plt.title("Event Frequency Heatmap (Top Events by Variance)")
-    plt.xlabel("Time Window" if time_based_index else "Window Index")
+    plt.xlabel("Time Window" if time_col is not None else "Window Index")
     plt.ylabel("Event Template")
-    plt.xticks(rotation=45)
     plt.tight_layout()
 
     if output_path:
@@ -157,13 +214,17 @@ def plot_tsne(
 ):
     """Plot t-SNE visualization of event count matrix"""
 
-    # Convert to pandas/numpy for sklearn
-    df_pd = event_count_matrix.to_pandas()
+    metadata_cols = {"Window", "WindowStart", "WindowEnd", "LogCount"}
+    event_cols = [
+        col
+        for col, dtype in event_count_matrix.schema.items()
+        if dtype in NUMERIC_DTYPES and col not in metadata_cols
+    ]
 
-    # Get event columns
-    metadata_cols = ["WindowStart", "WindowEnd", "LogCount"]
-    event_cols = [col for col in df_pd.columns if col not in metadata_cols]
-    event_data = df_pd[event_cols].values
+    if len(event_cols) == 0:
+        raise ValueError("No numeric event columns available for t-SNE visualization")
+
+    event_data = event_count_matrix.select(event_cols).to_numpy()
 
     if isinstance(anomaly_scores, pl.Series):
         scores = anomaly_scores.to_numpy()
@@ -230,10 +291,27 @@ def create_analysis_dashboard(
     results_path = Path(results_dir)
 
     # Load results
-    try:
-        anomalies = pl.read_parquet(results_path / "anomalies.parquet")
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Anomaly results not found in {results_dir}")
+    anomalies = None
+    parquet_path = results_path / "anomalies.parquet"
+    csv_path = results_path / "anomalies.csv"
+    json_path = results_path / "anomalies.json"
+
+    if parquet_path.exists():
+        try:
+            anomalies = pl.read_parquet(parquet_path)
+        except (ModuleNotFoundError, ImportError):
+            anomalies = None
+
+    if anomalies is None and csv_path.exists():
+        anomalies = pl.read_csv(csv_path)
+
+    if anomalies is None and json_path.exists():
+        anomalies = pl.read_json(json_path)
+
+    if anomalies is None:
+        raise FileNotFoundError(
+            f"Anomaly results not found in supported formats under {results_dir}"
+        )
 
     # Create output directory for plots
     plots_dir = results_path / "plots"
@@ -252,7 +330,7 @@ def create_analysis_dashboard(
             )
 
         # Convert to pandas for plotly
-        df_pd = anomalies.to_pandas()
+        df_pd = _to_pandas(anomalies)
 
         # Create subplots
         fig = make_subplots(
@@ -315,7 +393,7 @@ def create_analysis_dashboard(
         fig.suptitle("Log Anomaly Analysis Dashboard", fontsize=16, fontweight="bold")
 
         # Convert to pandas for matplotlib
-        df_pd = anomalies.to_pandas()
+        df_pd = _to_pandas(anomalies)
 
         # Plot 1: Time series
         axes[0, 0].plot(

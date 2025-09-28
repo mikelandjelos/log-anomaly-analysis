@@ -1,0 +1,40 @@
+dataset:
+  type: "file"
+  path: "../../data/raw/labeled/Thunderbird/Thunderbird.log"
+  format: "raw"
+
+preprocessing:
+  log_pattern: '^(?P<Label>\S+)\s+(?P<Epoch>\d+)\s+(?P<Date>\d{4}\.\d{2}\.\d{2})\s+(?P<Node>\S+)\s+(?P<Timestamp>\w+\s+\d{2}\s+\d{2}:\d{2}:\d{2})\s+(?P<Source>\S+)\s+(?P<Content>.+)$'
+  timestamp_format: "%b %d %H:%M:%S"
+  strict_mode: true
+  require_timestamps: false
+
+parsing:
+  similarity_threshold: 0.4
+  depth: 4
+  max_children: 100
+  max_clusters: 2048
+  extra_delimiters: ["_", ":", "/", "-"]
+  masking_rules:
+    - regex_pattern: '(\d+)'
+      mask_with: "NUM"
+    - regex_pattern: '([A-Fa-f0-9]{8,})'
+      mask_with: "HEX"
+  mask_prefix: "<:"
+  mask_suffix: ":>"
+
+windowing:
+  strategy: "fixed"
+  window_size: "5m"
+
+anomaly_detection:
+  algorithm: "pca_subspace"
+  variance_threshold: 0.99
+  alpha: 0.001
+  use_tfidf: false
+  use_scaling: true
+
+output:
+  directory: "../../data/results/labeled/Thunderbird"
+  save_intermediate: true
+  formats: ["parquet", "csv", "json"]

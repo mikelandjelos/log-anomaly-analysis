@@ -1,0 +1,40 @@
+dataset:
+  type: "file"
+  path: "../../data/raw/labeled/HDFS_v1/HDFS.log"
+  format: "raw"
+
+preprocessing:
+  log_pattern: '^(?P<Timestamp>\d{6})\s+(?P<Milli>\d{6})\s+(?P<Thread>\S+)\s+(?P<LogLevel>\S+)\s+(?P<Component>\S+):\s+(?P<Content>.+)$'
+  timestamp_format: "%y%m%d%H%M%S"
+  strict_mode: true
+  require_timestamps: true
+
+parsing:
+  similarity_threshold: 0.4
+  depth: 4
+  max_children: 100
+  max_clusters: 2048
+  extra_delimiters: ["_", ":", "/", "-"]
+  masking_rules:
+    - regex_pattern: '(blk_[\-\d]+)'
+      mask_with: "BLOCK"
+    - regex_pattern: '(\d+)'
+      mask_with: "NUM"
+  mask_prefix: "<:"
+  mask_suffix: ":>"
+
+windowing:
+  strategy: "fixed"
+  window_size: "5m"
+
+anomaly_detection:
+  algorithm: "pca_subspace"
+  variance_threshold: 0.99
+  alpha: 0.001
+  use_tfidf: false
+  use_scaling: true
+
+output:
+  directory: "../../data/results/labeled/HDFS_v1"
+  save_intermediate: true
+  formats: ["parquet", "csv", "json"]
