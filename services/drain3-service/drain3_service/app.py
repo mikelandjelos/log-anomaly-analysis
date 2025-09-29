@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
+import json
+import os
+import time
+from datetime import datetime, timezone
+
+import httpx
 import polars as pl
 from fastapi import FastAPI, HTTPException
 from loguru import logger
@@ -29,6 +35,7 @@ def build_components(config_path: Path) -> Dict[str, object]:
 app = FastAPI(title="Drain3 Service")
 component_cache: Dict[str, Dict[str, object]] = {}
 CONFIG_DIR = Path("/configs")
+LOKI_URL = os.environ.get("LOKI_URL")
 
 
 def resolve_config(stream: str) -> Path | None:
@@ -78,9 +85,71 @@ async def ingest(payload: IngestRequest):
 
     record = templates.to_dicts()[0]
     record["datastream"] = payload.datastream
+    if LOKI_URL:
+        await push_to_loki(record)
     return {"status": "ok", "record": record}
 
 
 @app.get("/healthz")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+async def push_to_loki(record: Dict[str, object]) -> None:
+    labels: Dict[str, str] = {"datastream": str(record.get("datastream", "unknown"))}
+
+    def _sanitize(label: str) -> str:
+        cleaned = label.replace(" ", "_").replace("-", "_")
+        if not cleaned:
+            cleaned = "field"
+        if cleaned[0].isdigit():
+            cleaned = f"_{cleaned}"
+        return cleaned
+
+    for key, value in record.items():
+        if key in {"datastream", "Content", "Parameters"}:
+            continue
+        if isinstance(value, (str, int, float, bool)) and value != "":
+            labels[_sanitize(key)] = str(value)
+    if "template_id" not in labels and "TemplateId" in record:
+        labels["template_id"] = str(record["TemplateId"])
+    if "event_template" not in labels and "EventTemplate" in record:
+        labels["event_template"] = str(record["EventTemplate"])
+
+    ts_value = record.get("Timestamp")
+
+    def to_ns(val: object) -> str:
+        if isinstance(val, (int, float)):
+            return str(int(float(val) * 1e9))
+        if isinstance(val, str) and val:
+            candidate = val.replace("Z", "+00:00")
+            try:
+                dt = datetime.fromisoformat(candidate)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return str(int(dt.timestamp() * 1e9))
+            except ValueError:
+                pass
+        return str(time.time_ns())
+
+    timestamp_ns = to_ns(ts_value)
+
+    payload = {
+        "streams": [
+            {
+                "stream": labels,
+                "values": [
+                    [
+                        timestamp_ns,
+                        json.dumps(record, default=str),
+                    ]
+                ],
+            }
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(LOKI_URL, json=payload)
+            resp.raise_for_status()
+    except Exception as exc:  # pragma: no cover - logging path
+        logger.warning("Failed to push record to Loki: %s", exc)
