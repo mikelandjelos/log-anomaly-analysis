@@ -54,7 +54,7 @@ flowchart LR
 
 #### Structured Storage (Loki)
 
-- Receive structured events with labels (`datastream`, `template_id`, etc.).
+- Receive structured events with labels (`Datastream`, `TemplateId`, etc.).
 - Retain short-term history to support dashboards and debugging.
 
 #### Streaming Analytics Service

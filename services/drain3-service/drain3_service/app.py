@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict
-
 import json
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict
 
 import httpx
 import polars as pl
 from fastapi import FastAPI, HTTPException
-from loguru import logger
-from pydantic import BaseModel
-
 from log_anomaly_analysis.core.components.parsing import TemplateParserComponent
 from log_anomaly_analysis.core.components.preprocessing import PreprocessorComponent
 from log_anomaly_analysis.core.config.loader import load_config
+from loguru import logger
+from pydantic import BaseModel
 
 
 class IngestRequest(BaseModel):
@@ -111,10 +109,6 @@ async def push_to_loki(record: Dict[str, object]) -> None:
             continue
         if isinstance(value, (str, int, float, bool)) and value != "":
             labels[_sanitize(key)] = str(value)
-    if "template_id" not in labels and "TemplateId" in record:
-        labels["template_id"] = str(record["TemplateId"])
-    if "event_template" not in labels and "EventTemplate" in record:
-        labels["event_template"] = str(record["EventTemplate"])
 
     ts_value = record.get("Timestamp")
 

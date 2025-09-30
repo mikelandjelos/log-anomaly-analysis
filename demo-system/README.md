@@ -51,7 +51,7 @@ variables there when wiring in new datastreams.
 
     # Example: Apache dataset
     python replay/send_logs.py \
-      ../log-anomaly-analysis/data/raw/loghub_2k/Apache/Apache_2k.log \
+      ../log-anomaly-analysis/data/raw/loghub_full/Apache/Apache_full.log \
       apache \
       --timestamp-regex '\[(?P<ts>[^]]+)]' \
       --timestamp-format '%a %b %d %H:%M:%S %Y' \
