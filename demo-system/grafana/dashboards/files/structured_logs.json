@@ -13,12 +13,16 @@
       "id": 1,
       "datasource": {
         "type": "loki",
-        "uid": "-100"
+        "uid": "loki-default"
       },
       "targets": [
         {
           "expr": "{datastream=\"bgl\"}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          }
         }
       ],
       "gridPos": {
