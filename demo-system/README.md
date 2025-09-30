@@ -61,4 +61,6 @@ variables there when wiring in new datastreams.
 The script streams logs over TCP as JSON; Logstash enriches and forwards them
 to the Drain3 service, which extracts templates and pushes structured events
 into Loki. Visit Grafana (<http://localhost:3000>, admin/admin) and open the
-"Structured Logs" dashboard to explore templates per datastream.
+"Structured Logs" dashboard. Use the Datastream and Event Template filters to
+zoom in on a feed, inspect log volume over time, and review the top templates
+seen in the selected time window.

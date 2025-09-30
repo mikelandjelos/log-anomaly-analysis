@@ -17,7 +17,7 @@
       },
       "targets": [
         {
-          "expr": "{datastream=\"bgl\"}",
+          "expr": "{datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -26,11 +26,236 @@
         }
       ],
       "gridPos": {
-        "h": 20,
+        "h": 14,
         "w": 24,
         "x": 0,
         "y": 0
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log Volume",
+      "id": 2,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-default"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (EventTemplate) (count_over_time({datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}[$__interval]))",
+          "legendFormat": "{{EventTemplate}}",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      }
+    },
+    {
+      "type": "table",
+      "title": "Top Event Templates",
+      "id": 3,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-default"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "occurrences"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_seen"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "datetime"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "count"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (EventTemplate, EventTemplateText) (count_over_time({datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}[$__range]))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{EventTemplateText}}",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targetLimit": 10,
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Value": "count",
+              "Value #A": "count",
+              "EventTemplateText": "template"
+            },
+            "indexByName": {
+              "EventTemplate": 0,
+              "template": 1,
+              "count": 2
+            }
+          }
+        }
+      ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datastream",
+        "label": "Datastream",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki-default"
+        },
+        "definition": "label_values({datastream=~\".+\"}, datastream)",
+        "query": "label_values({datastream=~\".+\"}, datastream)",
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".+"
+        }
+      },
+      {
+        "name": "event_template",
+        "label": "Event Template",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki-default"
+        },
+        "definition": "label_values({datastream=~\"$datastream\"}, EventTemplate)",
+        "query": "label_values({datastream=~\"$datastream\"}, EventTemplate)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".+"
+        },
+        "hide": 0
+      }
+    ]
+  }
 }
