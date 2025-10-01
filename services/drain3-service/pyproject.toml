@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "drain3-service"
+version = "0.1.0"
+description = "FastAPI wrapper around log-anomaly-analysis preprocessing + Drain3"
+authors = ["Mihajlo Madic <mihajlo.madic@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "drain3_service" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+log-anomaly-analysis = { path = "../../log-anomaly-analysis", develop = true }
+fastapi = "^0.115"
+uvicorn = { extras = ["standard"], version = "^0.34" }
+polars = "^1.33"
+loguru = "^0.7"
+httpx = "^0.27"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4"
+black = "^25.1"
+isort = "^6.0"
+flake8 = "^7.1"
+mypy = "^1.11"
+pre-commit = "^4.3"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

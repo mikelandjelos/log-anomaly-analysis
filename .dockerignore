@@ -1,0 +1,13 @@
+# Ignore everything by default
+**
+
+# Allow service code and analytics sources needed for build
+!services/drain3-service/**
+!log-anomaly-analysis/pyproject.toml
+!log-anomaly-analysis/poetry.lock
+!log-anomaly-analysis/src/**
+!log-anomaly-analysis/configs/**
+!log-anomaly-analysis/README.md
+
+# Exclude git metadata
+.git

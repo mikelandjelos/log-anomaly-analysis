@@ -1,0 +1,108 @@
+services:
+  replay_bgl:
+    container_name: bgl_logger
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./replay/send_logs.py:/workspace/send_logs.py:ro
+      - ../log-anomaly-analysis/data/raw/labeled/BGL:/data/bgl:ro
+    command:
+      - python
+      - /workspace/send_logs.py
+      - /data/bgl/BGL.log
+      - bgl
+      - --timestamp-regex
+      - '(?P<ts>\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}\.\d+)'
+      - --timestamp-format
+      - '%Y-%m-%d-%H.%M.%S.%f'
+      - --host
+      - logstash
+      - --port
+      - "5044"
+      - --speed
+      - "10"
+    depends_on:
+      logstash:
+        condition: service_started
+    restart: "no"
+
+  replay_hdfs:
+    container_name: hdfs_logger
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./replay/send_logs.py:/workspace/send_logs.py:ro
+      - ../log-anomaly-analysis/data/raw/loghub_full/HDFS:/data/hdfs:ro
+    command:
+      - python
+      - /workspace/send_logs.py
+      - /data/hdfs/HDFS_full.log
+      - hdfs
+      - --timestamp-regex
+      - '(?P<ts>\d{6}\s+\d{6})'
+      - --timestamp-format
+      - '%y%m%d %H%M%S'
+      - --host
+      - logstash
+      - --port
+      - "5044"
+      - --speed
+      - "50"
+    depends_on:
+      logstash:
+        condition: service_started
+    restart: "no"
+
+  replay_openstack:
+    container_name: openstack_logger
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./replay/send_logs.py:/workspace/send_logs.py:ro
+      - ../log-anomaly-analysis/data/raw/loghub_full/OpenStack:/data/openstack:ro
+    command:
+      - python
+      - /workspace/send_logs.py
+      - /data/openstack/OpenStack_full.log
+      - openstack
+      - --timestamp-regex
+      - '^\S+\s+(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)'
+      - --timestamp-format
+      - '%Y-%m-%d %H:%M:%S.%f'
+      - --host
+      - logstash
+      - --port
+      - "5044"
+      - --speed
+      - "10"
+    depends_on:
+      logstash:
+        condition: service_started
+    restart: "no"
+
+  replay_thunderbird:
+    container_name: thunderbird_logger
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./replay/send_logs.py:/workspace/send_logs.py:ro
+      - ../log-anomaly-analysis/data/raw/loghub_full/Thunderbird:/data/thunderbird:ro
+    command:
+      - python
+      - /workspace/send_logs.py
+      - /data/thunderbird/Thunderbird_full.log
+      - thunderbird
+      - --timestamp-regex
+      - '(?P<ts>[A-Za-z]{3}\s+\d{2}\s+\d{2}:\d{2}:\d{2})'
+      - --timestamp-format
+      - '%b %d %H:%M:%S'
+      - --host
+      - logstash
+      - --port
+      - "5044"
+      - --speed
+      - "10"
+    depends_on:
+      logstash:
+        condition: service_started
+    restart: "no"

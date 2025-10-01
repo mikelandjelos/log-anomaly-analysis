@@ -1,0 +1,19 @@
+preprocessing:
+  log_pattern: '^(?P<LogFile>\S+)\s+(?P<Timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+(?P<ProcessId>\d+)\s+(?P<LogLevel>\S+)\s+(?P<Component>\S+)\s+(?P<Content>.+)$'
+  timestamp_format: "%Y-%m-%d %H:%M:%S.%f"
+  strict_mode: true
+  require_timestamps: true
+
+parsing:
+  similarity_threshold: 0.45
+  depth: 4
+  max_children: 100
+  max_clusters: 2048
+  extra_delimiters: ["_", ".", "-", ":", "/"]
+  masking_rules:
+    - regex_pattern: '(\d+\.\d+\.\d+\.\d+)'
+      mask_with: "IP"
+    - regex_pattern: '([0-9a-fA-F-]{8,})'
+      mask_with: "HEX"
+  mask_prefix: "<:"
+  mask_suffix: ":>"

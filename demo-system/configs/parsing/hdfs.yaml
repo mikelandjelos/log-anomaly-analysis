@@ -1,0 +1,19 @@
+preprocessing:
+  log_pattern: '^(?P<Timestamp>\d{6}\s+\d{6})\s+(?P<Thread>\d+)\s+(?P<LogLevel>[A-Z]+)\s+(?P<Component>\S+):\s+(?P<Content>.+)$'
+  timestamp_format: "%y%m%d %H%M%S"
+  strict_mode: true
+  require_timestamps: true
+
+parsing:
+  similarity_threshold: 0.45
+  depth: 4
+  max_children: 100
+  max_clusters: 1024
+  extra_delimiters: ["_", ".", "-", ":", "/"]
+  masking_rules:
+    - regex_pattern: '(\d+)'
+      mask_with: "NUM"
+    - regex_pattern: '(\d+\.\d+\.\d+\.\d+)'
+      mask_with: "IP"
+  mask_prefix: "<:"
+  mask_suffix: ":>"
