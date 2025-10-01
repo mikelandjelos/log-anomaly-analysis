@@ -45,6 +45,18 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Speed multiplier when using timestamps (1.0 = real time).",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Number of connection attempts before giving up.",
+    )
+    parser.add_argument(
+        "--backoff-initial",
+        type=float,
+        default=1.0,
+        help="Initial backoff delay in seconds; doubles after each failed attempt.",
+    )
     return parser.parse_args()
 
 
@@ -59,7 +71,29 @@ def main() -> None:
     wall_start: float | None = None
     prev_ts: datetime | None = None
 
-    with socket.create_connection((args.host, args.port)) as sock:
+    sock = None
+    last_error: Exception | None = None
+    for attempt in range(args.retries):
+        try:
+            sock = socket.create_connection((args.host, args.port))
+            break
+        except OSError as exc:
+            last_error = exc
+            if attempt == args.retries - 1:
+                break
+            wait_for = args.backoff_initial * (2 ** attempt)
+            print(
+                f"Connection to {args.host}:{args.port} failed ({exc}); retrying in {wait_for:.1f}s",
+                flush=True,
+            )
+            time.sleep(wait_for)
+
+    if sock is None:
+        raise SystemExit(
+            f"Unable to connect to {args.host}:{args.port} after {args.retries} attempts"
+        )
+
+    with sock:
         with args.log_file.open("r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
                 stripped = line.strip()

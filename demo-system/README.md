@@ -56,6 +56,8 @@ variables there when wiring in new datastreams.
       --timestamp-regex '\[(?P<ts>[^]]+)]' \
       --timestamp-format '%a %b %d %H:%M:%S %Y' \
       --speed 10
+      # Optional: tweak connection retries/backoff if Logstash starts slowly
+      # --retries 5 --backoff-initial 1
     ```
 
 The script streams logs over TCP as JSON; Logstash enriches and forwards them
@@ -64,3 +66,15 @@ into Loki. Visit Grafana (<http://localhost:3000>, admin/admin) and open the
 "Structured Logs" dashboard. Use the Datastream and Event Template filters to
 zoom in on a feed, inspect log volume over time, and review the top templates
 seen in the selected time window.
+
+> Need an automated firehose? `docker-compose.override.yml` adds helper
+> containers (`replay_bgl`, `replay_hdfs`, `replay_openstack`,
+> `replay_thunderbird`) that run the same script against the labelled/demo
+> datasets (the script and datasets are mounted
+> read-only into each container). Bring them up alongside the stack:
+>
+> ```bash
+> docker compose up --build \
+>   logstash drain3 loki grafana \
+>   replay_bgl replay_hdfs replay_openstack replay_thunderbird
+> ```
