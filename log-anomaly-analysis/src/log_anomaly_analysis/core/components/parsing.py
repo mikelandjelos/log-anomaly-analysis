@@ -1,8 +1,6 @@
-"""
-Template parsing component using Drain3
-"""
+"""Template parsing component using Drain3."""
 
-from typing import Dict
+from typing import Any, Dict
 
 import polars as pl
 from drain3 import TemplateMiner
@@ -76,44 +74,43 @@ class TemplateParserComponent(BaseComponent):
         self.template_miner = TemplateMiner(config=drain_config)
 
     def process(self, data: pl.DataFrame) -> pl.DataFrame:
-        """Extract templates from preprocessed logs"""
+        """Extract templates from preprocessed logs."""
+
         if "Content" not in data.columns:
             raise ValueError("Input DataFrame must have 'Content' column")
 
-        base_columns = ["Timestamp"] if "Timestamp" in data.columns else []
-        if "LogLevel" in data.columns:
-            base_columns.append("LogLevel")
-
-        templates = []
+        templates: list[Dict[str, Any]] = []
         content_list = data["Content"].to_list()
 
         for i, content in enumerate(content_list):
             if content is None:
                 continue
 
+            row = dict(data.row(i, named=True))
             result = self.template_miner.add_log_message(str(content))
             parameters = self.template_miner.get_parameter_list(
                 result["template_mined"], str(content)
             )
 
-            template_data = {
-                "EventTemplate": result["template_mined"],
-                "TemplateId": result["cluster_id"],
-                "Parameters": parameters,
-            }
+            row.update(
+                {
+                    "EventTemplate": result["template_mined"],
+                    "TemplateId": result["cluster_id"],
+                    "Parameters": parameters,
+                }
+            )
 
-            for col in base_columns:
-                if i < len(data[col]):
-                    template_data[col] = data[col][i]
-
-            templates.append(template_data)
+            templates.append(row)
 
         if not templates:
             return pl.DataFrame()
 
-        result_df = pl.DataFrame(templates)
+        result_df = pl.from_dicts(templates)
+        unique_templates = result_df["TemplateId"].n_unique()
         logger.info(
-            f"Extracted {result_df['TemplateId'].n_unique()} unique templates from {len(result_df)} logs"
+            "Extracted {} unique templates from {} logs",
+            unique_templates,
+            len(result_df),
         )
 
         return result_df

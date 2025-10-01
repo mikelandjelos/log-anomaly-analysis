@@ -1,41 +1,27 @@
 {
-  "id": null,
-  "uid": "stream-logs",
-  "title": "Structured Logs",
-  "timezone": "browser",
-  "schemaVersion": 38,
-  "version": 1,
-  "refresh": "5s",
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 2,
+  "links": [],
   "panels": [
     {
-      "type": "logs",
-      "title": "Live Logs",
-      "id": 1,
-      "datasource": {
-        "type": "loki",
-        "uid": "loki-default"
-      },
-      "targets": [
-        {
-          "expr": "{datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}",
-          "refId": "A",
-          "datasource": {
-            "type": "loki",
-            "uid": "loki-default"
-          }
-        }
-      ],
-      "gridPos": {
-        "h": 14,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Log Volume",
-      "id": 2,
       "datasource": {
         "type": "loki",
         "uid": "loki-default"
@@ -46,26 +32,63 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
             "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
             "lineInterpolation": "linear",
-            "showPoints": "never"
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           }
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -74,26 +97,114 @@
       },
       "targets": [
         {
-          "expr": "sum by (EventTemplate) (count_over_time({datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}[$__interval]))",
-          "legendFormat": "{{EventTemplate}}",
-          "refId": "A",
           "datasource": {
             "type": "loki",
             "uid": "loki-default"
-          }
+          },
+          "expr": "sum by (EventTemplate) (count_over_time({datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}[$__interval]))",
+          "legendFormat": "{{EventTemplate}}",
+          "refId": "A"
         }
       ],
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 14
-      }
+      "title": "Log Volume",
+      "type": "timeseries"
     },
     {
-      "type": "table",
-      "title": "Top Event Templates",
-      "id": 3,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-default"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          },
+          "expr": "sum by (datastream) (count_over_time({datastream=~\".+\"}[$__range]))",
+          "legendFormat": "{{datastream}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Count per Datastream",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-default"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": false,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          },
+          "expr": "{datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Logs",
+      "type": "logs"
+    },
+    {
       "datasource": {
         "type": "loki",
         "uid": "loki-default"
@@ -101,161 +212,143 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "align": "left"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green"
-              }
-            ]
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "occurrences"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "last_seen"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "datetime"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "count"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 5,
       "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Spectral",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-9
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false
         }
       },
+      "pluginVersion": "11.1.0",
       "targets": [
         {
-          "expr": "sum by (EventTemplate, EventTemplateText) (count_over_time({datastream=~\"$datastream\", EventTemplate=~\"$event_template\"}[$__range]))",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "{{EventTemplateText}}",
-          "refId": "A",
           "datasource": {
             "type": "loki",
             "uid": "loki-default"
-          }
+          },
+          "editorMode": "code",
+          "expr": "topk(5, sum by (datastream, TemplateId) (count_over_time({datastream=~\"$datastream\"}[$__range])))",
+          "format": "heatmap",
+          "legendFormat": "{{datastream}} ({{TemplateId}})",
+          "queryType": "range",
+          "refId": "A"
         }
       ],
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 14
-      },
-      "targetLimit": 10,
-      "transformations": [
-        {
-          "id": "labelsToFields",
-          "options": {
-            "mode": "columns"
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "Value": "count",
-              "Value #A": "count",
-              "EventTemplateText": "template"
-            },
-            "indexByName": {
-              "EventTemplate": 0,
-              "template": 1,
-              "count": 2
-            }
-          }
-        }
-      ]
+      "title": "Template Heatmap",
+      "type": "heatmap"
     }
   ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": [],
   "templating": {
     "list": [
       {
-        "name": "datastream",
-        "label": "Datastream",
-        "type": "query",
+        "allValue": ".+",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "loki",
           "uid": "loki-default"
         },
         "definition": "label_values({datastream=~\".+\"}, datastream)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Datastream",
+        "multi": false,
+        "name": "datastream",
+        "options": [],
         "query": "label_values({datastream=~\".+\"}, datastream)",
         "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
         "sort": 1,
-        "multi": false,
-        "includeAll": true,
+        "type": "query"
+      },
+      {
         "allValue": ".+",
         "current": {
           "selected": false,
           "text": "All",
-          "value": ".+"
-        }
-      },
-      {
-        "name": "event_template",
-        "label": "Event Template",
-        "type": "query",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "loki",
           "uid": "loki-default"
         },
         "definition": "label_values({datastream=~\"$datastream\"}, EventTemplate)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Event Template",
+        "multi": false,
+        "name": "event_template",
+        "options": [],
         "query": "label_values({datastream=~\"$datastream\"}, EventTemplate)",
         "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
         "sort": 1,
-        "multi": false,
-        "includeAll": true,
-        "allValue": ".+",
-        "current": {
-          "selected": false,
-          "text": "All",
-          "value": ".+"
-        },
-        "hide": 0
+        "type": "query"
       }
     ]
-  }
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Structured Logs",
+  "uid": "stream-logs",
+  "version": 3,
+  "weekStart": ""
 }

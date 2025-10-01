@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from time import time_ns
+from typing import Any, Dict
 
 import httpx
 import polars as pl
@@ -93,24 +93,26 @@ async def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-async def push_to_loki(record: Dict[str, object]) -> None:
-    labels: Dict[str, str] = {"datastream": str(record.get("datastream", "unknown"))}
+async def push_to_loki(record: Dict[str, Any]) -> None:
+    record = dict(record)
+    record.pop("LineNumber", None)
 
-    def _sanitize(label: str) -> str:
-        cleaned = label.replace(" ", "_").replace("-", "_")
-        if not cleaned:
-            cleaned = "field"
-        if cleaned[0].isdigit():
-            cleaned = f"_{cleaned}"
-        return cleaned
+    labels: Dict[str, str] = {
+        "datastream": str(record.get("datastream", "unknown")),
+    }
 
-    for key, value in record.items():
-        if key in {"datastream", "Content", "Parameters"}:
-            continue
-        if isinstance(value, (str, int, float, bool)) and value != "":
-            labels[_sanitize(key)] = str(value)
+    def _label_value(value: Any) -> str:
+        text = str(value)
+        text = text.replace("\\", " ")
+        text = text.replace("\n", " ")
+        text = text.replace('"', "'")
+        text = " ".join(text.split())
+        return text[:250]
 
-    ts_value = record.get("Timestamp")
+    if record.get("EventTemplate"):
+        labels["EventTemplate"] = _label_value(record["EventTemplate"])
+    if record.get("TemplateId") is not None:
+        labels["TemplateId"] = str(record["TemplateId"])
 
     def to_ns(val: object) -> str:
         if isinstance(val, (int, float)):
@@ -124,26 +126,55 @@ async def push_to_loki(record: Dict[str, object]) -> None:
                 return str(int(dt.timestamp() * 1e9))
             except ValueError:
                 pass
-        return str(time.time_ns())
+        return str(time_ns())
 
+    def serialize(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        if isinstance(value, (list, tuple, set)):
+            return json.dumps(list(value), default=str)
+        if isinstance(value, dict):
+            return json.dumps(value, default=str)
+        return str(value)
+
+    structured_metadata: Dict[str, str] = {}
+    for key, value in record.items():
+        if key in {"datastream", "EventTemplate", "TemplateId"}:
+            continue
+        serialized = serialize(value)
+        if serialized is not None:
+            structured_metadata[key] = serialized
+
+    def json_default(obj: Any) -> str:
+        if isinstance(obj, datetime):
+            return obj.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return str(obj)
+
+    line_payload = json.dumps(record, default=json_default)
+    ts_value = record.get("Timestamp")
     timestamp_ns = to_ns(ts_value)
+
+    entry: list[Any] = [timestamp_ns, line_payload]
+    if structured_metadata:
+        entry.append(structured_metadata)
 
     payload = {
         "streams": [
             {
                 "stream": labels,
-                "values": [
-                    [
-                        timestamp_ns,
-                        json.dumps(record, default=str),
-                    ]
-                ],
+                "values": [entry],
             }
         ]
     }
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(LOKI_URL, json=payload)
+            if resp.status_code >= 400:
+                logger.warning(f"Loki push failed ({resp.status_code}): {resp.text}")
             resp.raise_for_status()
     except Exception as exc:  # pragma: no cover - logging path
         logger.warning("Failed to push record to Loki: %s", exc)
