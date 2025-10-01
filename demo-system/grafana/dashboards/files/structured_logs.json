@@ -282,6 +282,93 @@
       ],
       "title": "Template Heatmap",
       "type": "heatmap"
+    },
+    {
+      "type": "table",
+      "title": "Template Mapping",
+      "id": 6,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-default"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "datastream",
+                "TemplateId",
+                "EventTemplate"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "datastream": "Datastream",
+              "TemplateId": "TemplateId",
+              "EventTemplate": "Event Template"
+            },
+            "indexByName": {
+              "Datastream": 0,
+              "TemplateId": 1,
+              "Event Template": 2
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (datastream, TemplateId, EventTemplate) (count_over_time({datastream=~\"$datastream\"}[$__range]))",
+          "format": "table",
+          "legendFormat": "{{TemplateId}}",
+          "refId": "A",
+          "instant": true,
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-default"
+          }
+        }
+      ]
     }
   ],
   "refresh": "10s",
