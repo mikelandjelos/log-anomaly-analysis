@@ -37,4 +37,4 @@ anomaly_detection:
 output:
   directory: "../../data/results/labeled/HDFS_v1"
   save_intermediate: true
-  formats: ["parquet", "csv", "json"]
+  formats: ["parquet"]

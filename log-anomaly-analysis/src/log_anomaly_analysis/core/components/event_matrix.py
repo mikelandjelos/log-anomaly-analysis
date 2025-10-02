@@ -21,36 +21,38 @@ class EventMatrixComponent(BaseComponent):
         if data.is_empty():
             return pl.DataFrame()
 
-        logger.info("Creating event count matrix from windowed data")
-
-        # Explode the event templates for each window
-        expanded_data = []
-
-        for row in data.iter_rows(named=True):
-            window = row["Window"]
-            window_start = row.get("WindowStart", window)
-            window_end = row.get("WindowEnd", window)
-            log_count = row.get("LogCount", 0)
-
-            for template in row["EventTemplates"]:
-                expanded_data.append(
-                    {
-                        "Window": window,
-                        "EventTemplate": template,
-                        "WindowStart": window_start,
-                        "WindowEnd": window_end,
-                        "LogCount": log_count,
-                    }
-                )
-
-        if not expanded_data:
+        if "EventTemplates" not in data.columns:
+            logger.warning("Windowed data missing 'EventTemplates' column; skipping")
             return pl.DataFrame()
 
-        expanded_df = pl.DataFrame(expanded_data)
+        logger.info("Creating event count matrix from windowed data")
 
-        # Create pivot table
+        metadata_cols = [
+            col
+            for col in ["WindowStart", "WindowEnd", "LogCount"]
+            if col in data.columns
+        ]
+
+        select_cols = ["Window", "EventTemplates", *metadata_cols]
+
+        expanded = (
+            data.select(select_cols)
+            .with_columns(
+                pl.col("EventTemplates").fill_null(pl.lit([], dtype=pl.List(pl.Utf8)))
+            )
+            .explode("EventTemplates")
+            .rename({"EventTemplates": "EventTemplate"})
+        )
+
+        if expanded.is_empty():
+            return pl.DataFrame()
+
+        expanded = expanded.filter(pl.col("EventTemplate").is_not_null())
+        if expanded.is_empty():
+            return pl.DataFrame()
+
         event_matrix = (
-            expanded_df.group_by(["Window", "EventTemplate"], maintain_order=True)
+            expanded.group_by(["Window", "EventTemplate"], maintain_order=True)
             .len()
             .pivot(
                 index="Window",
@@ -62,19 +64,21 @@ class EventMatrixComponent(BaseComponent):
             .sort("Window")
         )
 
-        # Add metadata columns if they exist
-        if "WindowStart" in expanded_df.columns:
-            metadata = expanded_df.group_by("Window", maintain_order=True).agg(
-                [
-                    pl.col("WindowStart").first(),
-                    pl.col("WindowEnd").first(),
-                    pl.col("LogCount").first(),
-                ]
+        if metadata_cols:
+            metadata = (
+                expanded.select(["Window", *metadata_cols])
+                .group_by("Window", maintain_order=True)
+                .agg([pl.col(col).first().alias(col) for col in metadata_cols])
             )
+            event_matrix = event_matrix.join(metadata, on="Window", how="left")
 
-            event_matrix = event_matrix.join(metadata, on="Window", how="left").sort(
-                "Window"
-            )
+        # Reorder columns: Window, event counts, metadata
+        metadata_set = set(metadata_cols)
+        event_cols = [
+            col for col in event_matrix.columns if col not in {"Window", *metadata_set}
+        ]
+        ordered_cols = ["Window", *event_cols, *metadata_cols]
+        event_matrix = event_matrix.select(ordered_cols)
 
         logger.info(f"Created event matrix with shape: {event_matrix.shape}")
         return event_matrix

@@ -18,7 +18,7 @@ parsing:
   masking_rules:
     - regex_pattern: '(\d+)'
       mask_with: "NUM"
-    - regex_pattern: '([A-Fa-f0-9]{8,})'
+    - regex_pattern: "([A-Fa-f0-9]{8,})"
       mask_with: "HEX"
   mask_prefix: "<:"
   mask_suffix: ":>"
@@ -37,4 +37,4 @@ anomaly_detection:
 output:
   directory: "../../data/results/labeled/Thunderbird"
   save_intermediate: true
-  formats: ["parquet", "csv", "json"]
+  formats: ["parquet"]

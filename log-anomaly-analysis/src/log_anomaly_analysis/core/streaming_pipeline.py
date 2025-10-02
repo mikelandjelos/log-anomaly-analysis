@@ -65,10 +65,12 @@ class StreamingResultWriter:
                 prepared.write_parquet(path, compression="zstd")
                 self._parquet_part_index[stage] += 1
             elif fmt == "json":
+                raise ValueError(f"`json` format not supported when streaming")
                 path = self.base_dir / f"{stage}.json"
                 with path.open("a", encoding="utf-8") as results_file:
                     prepared.write_ndjson(file=results_file)
             elif fmt == "csv":
+                raise ValueError(f"`csv` format not supported when streaming")
                 path = self.base_dir / f"{stage}.csv"
                 header_written = self._csv_header_written.get(path, False)
                 path_exists = path.exists()
