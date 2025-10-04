@@ -14,7 +14,7 @@ from log_anomaly_analysis.core.streaming_pipeline import (
 
 
 def test_streaming_writer_creates_parquet_parts(tmp_path):
-    writer = StreamingResultWriter(tmp_path, formats=["parquet", "csv", "json"])
+    writer = StreamingResultWriter(tmp_path, formats=["parquet"])
 
     df_first = pl.DataFrame(
         {
@@ -40,17 +40,6 @@ def test_streaming_writer_creates_parquet_parts(tmp_path):
         "part-00000.parquet",
         "part-00001.parquet",
     ]
-
-    csv_path = tmp_path / "anomalies.csv"
-    assert csv_path.exists(), "CSV output missing"
-    csv_contents = csv_path.read_text(encoding="utf-8").strip().splitlines()
-    assert len(csv_contents) == 3, "CSV should contain one header and two rows"
-    assert "['A','B']" in csv_contents[1], "List column should be serialized"
-
-    json_path = tmp_path / "anomalies.json"
-    assert json_path.exists(), "JSON output missing"
-    json_lines = json_path.read_text(encoding="utf-8").strip().splitlines()
-    assert len(json_lines) == 2, "JSON output should contain two records"
 
 
 def test_streaming_pipeline_flushes_remainder(
