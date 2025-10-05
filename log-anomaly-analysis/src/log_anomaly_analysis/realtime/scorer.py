@@ -134,9 +134,7 @@ class StreamingPCAScorer:
         # Only partial_fit when we have enough rows >= n_components
         assert self._ipca is not None
         n_components = int(
-            self._ipca.n_components_
-            if hasattr(self._ipca, "n_components_")
-            else self._ipca.n_components_
+            getattr(self._ipca, "n_components_", self._ipca.n_components)
         )
         if total_rows < n_components:
             return

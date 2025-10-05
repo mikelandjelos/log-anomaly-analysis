@@ -105,8 +105,9 @@ class Accumulator:
 
     def _win_key(self, ts: datetime) -> datetime:
         # epoch-aligned tumbling windows
-        tz = ts.tzinfo or timezone.utc
-        epoch = datetime(1970, 1, 1, tzinfo=tz)
+        # Preserve naive vs aware consistently to avoid mixing types
+        tz = ts.tzinfo
+        epoch = datetime(1970, 1, 1, tzinfo=tz) if tz is not None else datetime(1970, 1, 1)
         s = (ts - epoch).total_seconds()
         size = self.wtd.total_seconds() or 1.0
         return epoch + timedelta(seconds=int(s // size) * size)
@@ -178,6 +179,43 @@ class Accumulator:
             for i, v in enumerate(vec.tolist()):
                 row_feat[str(i)] = v
             feat_rows.append(row_feat)
+
+        windowed = pl.DataFrame(win_rows) if win_rows else pl.DataFrame()
+        features = pl.DataFrame(feat_rows) if feat_rows else pl.DataFrame()
+        return windowed, features
+
+    def finalize_all(self) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """Force-close and emit all windows regardless of lateness.
+
+        Useful at end-of-stream to flush the remainder.
+        """
+        if not self._bins:
+            return pl.DataFrame(), pl.DataFrame()
+
+        ready = sorted(self._bins.keys())
+        win_rows: List[Dict[str, object]] = []
+        feat_rows: List[Dict[str, object]] = []
+
+        for k in ready:
+            bins = self._bins.pop(k)
+            cnt = self._counts.pop(k, 0)
+
+            meta = {
+                "Window": k,
+                "WindowStart": k,
+                "WindowEnd": k + self.wtd,
+                "LogCount": cnt,
+            }
+            win_rows.append(meta)
+
+            vec = bins.astype(np.float32, copy=False)
+            if self.normalize_by_logcount:
+                den = float(cnt) if cnt > 0 else 1.0
+                vec = vec / den
+            row = dict(meta)
+            for i, v in enumerate(vec.tolist()):
+                row[str(i)] = v
+            feat_rows.append(row)
 
         windowed = pl.DataFrame(win_rows) if win_rows else pl.DataFrame()
         features = pl.DataFrame(feat_rows) if feat_rows else pl.DataFrame()
