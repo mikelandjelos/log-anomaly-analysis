@@ -10,16 +10,14 @@ preprocessing:
   require_timestamps: true
 
 parsing:
-  similarity_threshold: 0.4
+  similarity_threshold: 0.5
   depth: 4
-  max_children: 100
-  max_clusters: 1024
-  extra_delimiters: ["_", ":", "/", "-"]
+  max_children: 150
+  max_clusters: 2048
+  extra_delimiters: ["_", "-", ".", ":", "/"]
   masking_rules:
-    - regex_pattern: '(\d+)'
-      mask_with: "NUM"
-    - regex_pattern: "([A-Fa-f0-9]{8,})"
-      mask_with: "HEX"
+    - regex_pattern: r"core\.\d+"
+      mask_with: "CORE"
   mask_prefix: "<:"
   mask_suffix: ":>"
 

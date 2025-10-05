@@ -242,9 +242,14 @@ class StreamingPipeline:
             state = StreamingPipelineState()
 
         start_time = perf_counter()
+        chunk_counter = 0
 
         for raw_chunk in chunk_iterator:
             _, state = self.process_chunk(raw_chunk, state=state, writer=writer)
+            logger.info(
+                f"==================== PROCESSED #{chunk_counter} ========================"
+            )
+            chunk_counter += 1
 
         self._flush_remainder(state, writer)
 
