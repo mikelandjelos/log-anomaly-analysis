@@ -19,6 +19,7 @@ from typing import Optional, Tuple
 import numpy as np
 from sklearn.decomposition import IncrementalPCA
 from sklearn.preprocessing import StandardScaler
+from loguru import logger
 
 
 def _select_k(ev_ratio: np.ndarray, thr: float) -> int:
@@ -65,6 +66,7 @@ class PCAScorerConfig:
     use_scaling: bool = True
     warmup_windows: int = 5000
     max_components: Optional[int] = 512
+    min_residual_eigs: int = 10  # ensure residual has at least this many eigenvalues
 
 
 class StreamingPCAScorer:
@@ -81,6 +83,7 @@ class StreamingPCAScorer:
         self.use_scaling = bool(config.use_scaling)
         self.warmup_windows = int(config.warmup_windows)
         self.max_components = config.max_components
+        self.min_residual_eigs = int(config.min_residual_eigs)
 
         self._scaler: Optional[StandardScaler] = (
             StandardScaler() if self.use_scaling else None
@@ -111,8 +114,8 @@ class StreamingPCAScorer:
         if self._ipca is not None:
             return
         ncomp_cap = self.max_components if self.max_components is not None else 512
-        # target components: limited by features and by available rows (for first partial_fit)
-        n_components = int(min(ncomp_cap, p, max(2, batch_rows)))
+        # Choose target components independent of early batch size; delay partial_fit until enough rows
+        n_components = int(min(ncomp_cap, p))
         self._ipca = IncrementalPCA(n_components=n_components)
         self._n_components_target = n_components
         self._n_features = p
@@ -177,10 +180,28 @@ class StreamingPCAScorer:
             return
 
         self._k = _select_k(evr, self.variance_threshold)
-        # Ensure residual exists; cap k to < number of available eigenvalues
-        self._k = max(1, min(self._k, ev.shape[0] - 1))
+        # Ensure residual exists and has enough DOF
+        n_avail = int(ev.shape[0])
+        if n_avail <= 1:
+            self._k = 1
+        else:
+            max_k = max(1, n_avail - max(1, self.min_residual_eigs))
+            self._k = max(1, min(self._k, max_k))
         resid = ev[self._k :]
         self._spe_threshold = _jm_spe_threshold(resid, self.alpha)
+        # Instrument calibration summary
+        try:
+            n_components = getattr(self._ipca, "n_components_", self._ipca.n_components)
+            logger.info(
+                "PCA warmup finalized: p={}, n_components={}, k={}, residual_dof={}, SPE_threshold={:.6f}",
+                self._n_features,
+                n_components,
+                self._k,
+                int(resid.shape[0]),
+                self._spe_threshold,
+            )
+        except Exception:
+            pass
         self._warmed = True
 
     def score(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
