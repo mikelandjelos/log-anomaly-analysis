@@ -65,7 +65,6 @@ class AccumulatorConfig:
     allowed_lateness: str = "0s"
     hash_bins: int = 4096
     hash_signed: bool = True
-    normalize_by_logcount: bool = True
 
 
 class Accumulator:
@@ -90,7 +89,7 @@ class Accumulator:
         self.ltd = _parse_duration(config.allowed_lateness)
         self.B = int(config.hash_bins)
         self.signed = bool(config.hash_signed)
-        self.normalize_by_logcount = bool(config.normalize_by_logcount)
+        # Always use raw counts; no per-window normalization here.
 
         self._bins: Dict[datetime, np.ndarray] = {}
         self._counts: Dict[datetime, int] = {}
@@ -169,11 +168,8 @@ class Accumulator:
             }
             win_rows.append(row_meta)
 
-            # materialize hashed counts (optionally normalized)
+            # materialize hashed counts (raw counts)
             vec = bins.astype(np.float32, copy=False)
-            if self.normalize_by_logcount:
-                den = float(cnt) if cnt > 0 else 1.0
-                vec = vec / den
 
             row_feat = dict(row_meta)
             for i, v in enumerate(vec.tolist()):
@@ -209,9 +205,6 @@ class Accumulator:
             win_rows.append(meta)
 
             vec = bins.astype(np.float32, copy=False)
-            if self.normalize_by_logcount:
-                den = float(cnt) if cnt > 0 else 1.0
-                vec = vec / den
             row = dict(meta)
             for i, v in enumerate(vec.tolist()):
                 row[str(i)] = v

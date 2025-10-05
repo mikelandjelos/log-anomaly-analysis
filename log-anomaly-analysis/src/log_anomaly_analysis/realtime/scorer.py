@@ -36,8 +36,6 @@ def _spe_scores(X: np.ndarray, comps: np.ndarray, mean_vec: np.ndarray) -> np.nd
 
 
 def _jm_spe_threshold(eigs_resid: np.ndarray, alpha: float) -> float:
-    # Jackson–Mudholkar SPE threshold (no T^2; see library’s offline impl)
-    # Protect degeneracies
     if eigs_resid.size == 0 or np.allclose(eigs_resid, 0):
         return float("inf")
     theta1 = eigs_resid.sum()
@@ -92,9 +90,6 @@ class StreamingPCAScorer:
         self._n_components_target: Optional[int] = None
 
         self._buffer: list[np.ndarray] = []  # accumulate until batch >= n_components
-        self._warm_samples: list[np.ndarray] = (
-            []
-        )  # scaled warm samples for empirical threshold
         self._seen_windows: int = 0
         self._warmed: bool = False
         self._k: int = 0
@@ -130,8 +125,6 @@ class StreamingPCAScorer:
             X = self._scaler.transform(X)
 
         X = X.astype(np.float32, copy=False)
-        # keep warm samples for empirical quantile threshold
-        self._warm_samples.append(X)
         self._buffer.append(X)
         total_rows = sum(b.shape[0] for b in self._buffer)
         if self._ipca is None:
@@ -184,25 +177,10 @@ class StreamingPCAScorer:
             return
 
         self._k = _select_k(evr, self.variance_threshold)
-        self._k = max(1, min(self._k, ev.shape[0]))
-        # Empirical threshold from warm samples, as in the reference notebook
-        try:
-            warm_X = (
-                np.vstack(self._warm_samples).astype(np.float32)
-                if self._warm_samples
-                else None
-            )
-            if warm_X is None or warm_X.size == 0:
-                self._spe_threshold = float("inf")
-            else:
-                P = self._ipca.components_[: self._k]
-                mu = self._ipca.mean_
-                S_warm = _spe_scores(warm_X, P, mu)
-                q = 1.0 - float(self.alpha)
-                self._spe_threshold = float(np.quantile(S_warm, q))
-        finally:
-            # free warm storage
-            self._warm_samples.clear()
+        # Ensure residual exists; cap k to < number of available eigenvalues
+        self._k = max(1, min(self._k, ev.shape[0] - 1))
+        resid = ev[self._k :]
+        self._spe_threshold = _jm_spe_threshold(resid, self.alpha)
         self._warmed = True
 
     def score(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
