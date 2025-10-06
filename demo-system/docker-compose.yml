@@ -7,6 +7,8 @@ services:
       - ./loki/config.yml:/etc/loki/local-config.yaml:ro
     ports:
       - "3100:3100"
+    networks:
+      - stack
 
   grafana:
     container_name: grafana
@@ -22,6 +24,8 @@ services:
       - "3000:3000"
     depends_on:
       - loki
+    networks:
+      - stack
 
   drain3:
     container_name: parser
@@ -35,6 +39,8 @@ services:
       - LOKI_URL=http://loki:3100/loki/api/v1/push
     ports:
       - "8000:8000"
+    networks:
+      - stack
 
   logstash:
     container_name: logstash
@@ -47,3 +53,36 @@ services:
     ports:
       - "5044:5044"
     command: ["-f", "/usr/share/logstash/pipeline"]
+    networks:
+      - stack
+
+  analytics:
+    container_name: analytics
+    build:
+      context: ..
+      dockerfile: services/streaming-analytics/Dockerfile
+    environment:
+      - LOKI_BASE_URL=http://loki:3100
+      - LOKI_QUERY={datastream="bgl"}
+      - LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
+      - DATASTREAM=bgl
+      - ACC_WINDOW_SIZE=10m
+      - ACC_ALLOWED_LATENESS=0s
+      - ACC_HASH_BINS=4096
+      - ACC_HASH_SIGNED=true
+      - SCORER_VARIANCE_THRESHOLD=0.95
+      - SCORER_ALPHA=0.001
+      - SCORER_USE_SCALING=true
+      - SCORER_WARMUP_WINDOWS=300
+      - SCORER_MAX_COMPONENTS=128
+      - SCORER_MIN_RESIDUAL_EIGS=64
+    depends_on:
+      - loki
+    ports:
+      - "8001:8001"
+    networks:
+      - stack
+
+networks:
+  stack:
+    driver: bridge

@@ -1,0 +1,2 @@
+"""Streaming analytics service package."""
+
