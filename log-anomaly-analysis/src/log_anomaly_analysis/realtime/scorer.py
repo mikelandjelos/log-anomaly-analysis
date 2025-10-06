@@ -17,9 +17,10 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
+from loguru import logger
+from numpy.linalg import LinAlgError
 from sklearn.decomposition import IncrementalPCA
 from sklearn.preprocessing import StandardScaler
-from loguru import logger
 
 
 def _select_k(ev_ratio: np.ndarray, thr: float) -> int:
@@ -97,6 +98,8 @@ class StreamingPCAScorer:
         self._warmed: bool = False
         self._k: int = 0
         self._spe_threshold: float = float("inf")
+        self._t2_threshold: float = float("inf")
+        self._warm_count: int = 0
 
     @property
     def warmed(self) -> bool:
@@ -133,23 +136,46 @@ class StreamingPCAScorer:
         if self._ipca is None:
             self._ensure_ipca(p=X.shape[1], batch_rows=total_rows)
 
-        # Only partial_fit when we have enough rows >= n_components
+        # Only partial_fit when we have enough rows >= n_components (prefer margin)
         assert self._ipca is not None
         n_components = int(
             getattr(self._ipca, "n_components_", self._ipca.n_components)
         )
-        if total_rows < n_components:
+        # Require a safety margin to avoid ill-conditioned SVD
+        if total_rows < max(n_components + 8, int(1.5 * n_components)):
             return
 
         buf = np.vstack(self._buffer).astype(np.float32)
         self._buffer.clear()
-        self._ipca.partial_fit(buf)
+        # Robust partial_fit with backoff on SVD failure
+        attempts = 0
+        while True:
+            try:
+                self._ipca.partial_fit(buf)
+                break
+            except LinAlgError:
+                attempts += 1
+                old_nc = int(
+                    getattr(self._ipca, "n_components_", self._ipca.n_components)
+                )
+                new_nc = max(2, int(old_nc * 0.75))
+                logger.warning(
+                    "IPCA partial_fit SVD did not converge (n_components=%d, rows=%d); reducing to %d",
+                    old_nc,
+                    buf.shape[0],
+                    new_nc,
+                )
+                if new_nc >= old_nc or new_nc < 2 or attempts >= 3:
+                    raise
+                # Re-initialize IPCA with fewer components
+                self._ipca = IncrementalPCA(n_components=new_nc)
 
     def partial_fit_warmup(self, X: np.ndarray) -> None:
         """Consume a batch during warmup (incremental fit)."""
         if self._warmed:
             return
         self._seen_windows += int(X.shape[0])
+        self._warm_count = self._seen_windows
         self._fit_partial(X)
         if self._seen_windows >= self.warmup_windows:
             self._finalize_warmup()
@@ -189,34 +215,64 @@ class StreamingPCAScorer:
             self._k = max(1, min(self._k, max_k))
         resid = ev[self._k :]
         self._spe_threshold = _jm_spe_threshold(resid, self.alpha)
+        # T^2 threshold based on F-approximation
+        k = int(self._k)
+        N = int(max(self._warm_count, k + 1))
+        try:
+            from scipy.stats import f as f_dist
+
+            if N > k:
+                self._t2_threshold = (
+                    (k * (N - 1))
+                    / max(1, (N - k))
+                    * float(f_dist.ppf(1.0 - self.alpha, k, max(1, N - k)))
+                )
+            else:
+                self._t2_threshold = float("inf")
+        except Exception:
+            # Fallback: chi-square approx with k dof
+            try:
+                from scipy.stats import chi2
+
+                self._t2_threshold = float(chi2.ppf(1.0 - self.alpha, df=k))
+            except Exception:
+                self._t2_threshold = float("inf")
         # Instrument calibration summary
         try:
             n_components = getattr(self._ipca, "n_components_", self._ipca.n_components)
             logger.info(
-                "PCA warmup finalized: p={}, n_components={}, k={}, residual_dof={}, SPE_threshold={:.6f}",
+                "PCA warmup finalized: p={}, n_components={}, k={}, residual_dof={}, SPE_threshold={:.6f}, T2_threshold={:.6f}",
                 self._n_features,
                 n_components,
                 self._k,
                 int(resid.shape[0]),
                 self._spe_threshold,
+                self._t2_threshold,
             )
         except Exception:
             pass
         self._warmed = True
 
-    def score(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute SPE scores and anomaly flags for a batch.
+    def score(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute SPE and T2 scores and anomaly flags for a batch.
 
-        Returns (scores, is_anomaly)
+        Returns (spe_scores, t2_scores, is_anomaly)
         """
         if X.size == 0:
-            return np.array([], dtype=np.float32), np.array([], dtype=bool)
+            return (
+                np.array([], dtype=np.float32),
+                np.array([], dtype=np.float32),
+                np.array([], dtype=bool),
+            )
 
         if not self._warmed:
             # Still warming: fit incrementally, but do not score
             self.partial_fit_warmup(X)
-            return np.zeros((X.shape[0],), dtype=np.float32), np.zeros(
-                (X.shape[0],), dtype=bool
+            n = X.shape[0]
+            return (
+                np.zeros((n,), dtype=np.float32),
+                np.zeros((n,), dtype=np.float32),
+                np.zeros((n,), dtype=bool),
             )
 
         assert self._ipca is not None
@@ -229,5 +285,11 @@ class StreamingPCAScorer:
         P = self._ipca.components_[: self._k]
         mu = self._ipca.mean_
         S = _spe_scores(Xt, P, mu)
-        flags = S > self._spe_threshold
-        return S, flags
+        # T^2 using retained eigenvalues
+        lam = np.maximum(
+            getattr(self._ipca, "explained_variance_", np.ones(self._k)[: self._k]),
+            1e-12,
+        )
+        T2 = np.sum(((Xt - mu) @ P.T) ** 2 / lam[: self._k], axis=1).astype(np.float32)
+        flags = (S > self._spe_threshold) | (T2 > self._t2_threshold)
+        return S.astype(np.float32), T2, flags
