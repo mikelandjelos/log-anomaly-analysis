@@ -134,6 +134,38 @@ def _ns_to_dt(ns_str: str) -> datetime:
     return datetime.fromtimestamp(int(ns_str) / 1e9, tz=timezone.utc)
 
 
+def _parse_event_ts(val: Any) -> Optional[datetime]:
+    """Parse event-time from record field value.
+
+    Accepts ISO strings (with or without trailing Z), numeric seconds, or datetime objects.
+    Returns timezone-aware UTC datetimes, or None on failure.
+    """
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        dt = val
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
+    if isinstance(val, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(val), tz=timezone.utc)
+        except Exception:
+            return None
+    if isinstance(val, str) and val:
+        candidate = val.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(candidate)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            return None
+    return None
+
+
 async def _push_anomalies_to_loki(anom_df: pl.DataFrame) -> None:
     if anom_df.is_empty():
         return
@@ -197,7 +229,13 @@ async def _tail_loop() -> None:
                                 rec = json.loads(line)
                             except Exception:
                                 rec = {"raw": line}
-                            ts = _ns_to_dt(ts_ns)
+                            # Prefer record event-time if present to avoid relying on Loki's sample ts
+                            rec_ts = (
+                                rec.get("Timestamp")
+                                or rec.get("original_timestamp")
+                                or rec.get("OriginalTimestamp")
+                            )
+                            ts = _parse_event_ts(rec_ts) or _ns_to_dt(ts_ns)
                             tpl = rec.get("TemplateId")
                             if tpl is None:
                                 tpl = rec.get("EventTemplate")
