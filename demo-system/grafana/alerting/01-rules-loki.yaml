@@ -1,0 +1,73 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: loki-anomaly
+    folder: Alerting
+    interval: 10s
+    rules:
+      - uid: loki-anomaly-any
+        title: Anomaly windows present
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki-default
+            queryType: range
+            relativeTimeRange:
+              from: 60
+              to: 0
+            model:
+              editorMode: code
+              expr: 'sum by (datastream) (count_over_time({type="anomaly"}[1m]))'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              queryType: range
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            queryType: ""
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            queryType: ""
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Anomaly detected in {{ $labels.datastream }}
+          description: Anomaly count exceeded threshold

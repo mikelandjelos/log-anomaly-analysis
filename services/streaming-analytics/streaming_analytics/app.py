@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import signal
 import sys
@@ -14,7 +15,6 @@ import httpx
 import polars as pl
 import websockets
 from fastapi import FastAPI
-import math
 from log_anomaly_analysis.realtime import Accumulator, StreamingPCAScorer
 from loguru import logger
 from pydantic import BaseModel
@@ -196,6 +196,7 @@ async def _push_anomalies_to_loki(anom_df: pl.DataFrame) -> None:
     # Build a single stream with labels {datastream, type=anomaly}
     labels = {"datastream": DATASTREAM, "type": "anomaly"}
     values = []
+
     def _json_default(obj: Any) -> str:
         if isinstance(obj, datetime):
             dt = obj.astimezone(timezone.utc)
@@ -269,9 +270,23 @@ async def _push_scores_to_loki(score_df: pl.DataFrame) -> None:
             "AnomalyScore_SPE": float(row.get("AnomalyScore_SPE") or 0.0),
             "IsAnomaly": bool(row.get("IsAnomaly") or False),
         }
+        # optional T2 score
         if "AnomalyScore_T2" in score_df.columns:
             try:
                 payload["AnomalyScore_T2"] = float(row.get("AnomalyScore_T2") or 0.0)
+            except Exception:
+                pass
+        # include thresholds if present for plotting
+        if "SPE_threshold" in score_df.columns:
+            try:
+                thr = row.get("SPE_threshold")
+                payload["SPE_threshold"] = float(thr) if thr is not None else None
+            except Exception:
+                pass
+        if "T2_threshold" in score_df.columns:
+            try:
+                thr = row.get("T2_threshold")
+                payload["T2_threshold"] = float(thr) if thr is not None else None
             except Exception:
                 pass
 
@@ -283,7 +298,9 @@ async def _push_scores_to_loki(score_df: pl.DataFrame) -> None:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(LOKI_PUSH_URL, json=body)
             if resp.status_code >= 400:
-                logger.warning("Loki push (scores) failed ({}): {}", resp.status_code, resp.text)
+                logger.warning(
+                    "Loki push (scores) failed ({}): {}", resp.status_code, resp.text
+                )
     except Exception as exc:
         logger.warning("Failed to push scores to Loki: {}", exc)
 
@@ -347,8 +364,12 @@ async def _tail_loop() -> None:
                                 else:
                                     # Score all windows in this flush
                                     # Gather thresholds once per flush
-                                    spe_thr = getattr(state.scorer, "spe_threshold", None)
-                                    t2_thr = getattr(state.scorer, "_t2_threshold", None)
+                                    spe_thr = getattr(
+                                        state.scorer, "spe_threshold", None
+                                    )
+                                    t2_thr = getattr(
+                                        state.scorer, "_t2_threshold", None
+                                    )
                                     try:
                                         S, T2, yhat = state.scorer.score(X)  # type: ignore[misc]
                                         n = len(S)
@@ -359,8 +380,16 @@ async def _tail_loop() -> None:
                                             "LogCount": feat_df["LogCount"],
                                             "AnomalyScore_SPE": S,
                                             "AnomalyScore_T2": T2,
-                                            "SPE_threshold": [float(spe_thr)] * n if isinstance(spe_thr, float) else [None] * n,
-                                            "T2_threshold": [float(t2_thr)] * n if isinstance(t2_thr, float) else [None] * n,
+                                            "SPE_threshold": (
+                                                [float(spe_thr)] * n
+                                                if isinstance(spe_thr, float)
+                                                else [None] * n
+                                            ),
+                                            "T2_threshold": (
+                                                [float(t2_thr)] * n
+                                                if isinstance(t2_thr, float)
+                                                else [None] * n
+                                            ),
                                             "IsAnomaly": yhat,
                                         }
                                     except Exception:
@@ -372,7 +401,11 @@ async def _tail_loop() -> None:
                                             "WindowEnd": feat_df["WindowEnd"],
                                             "LogCount": feat_df["LogCount"],
                                             "AnomalyScore_SPE": S,
-                                            "SPE_threshold": [float(spe_thr)] * n if isinstance(spe_thr, float) else [None] * n,
+                                            "SPE_threshold": (
+                                                [float(spe_thr)] * n
+                                                if isinstance(spe_thr, float)
+                                                else [None] * n
+                                            ),
                                             "IsAnomaly": yhat,
                                         }
                                     result_df = pl.DataFrame(result_dict)
@@ -380,9 +413,13 @@ async def _tail_loop() -> None:
                                     await _push_scores_to_loki(result_df)
                                     # Also push anomalies-only stream for dashboards
                                     if "IsAnomaly" in result_df.columns:
-                                        anom_only = result_df.filter(pl.col("IsAnomaly") == True)
+                                        anom_only = result_df.filter(
+                                            pl.col("IsAnomaly") == True
+                                        )
                                         if not anom_only.is_empty():
-                                            state.total_anomalies += int(anom_only["IsAnomaly"].sum())
+                                            state.total_anomalies += int(
+                                                anom_only["IsAnomaly"].sum()
+                                            )
                                             await _push_anomalies_to_loki(anom_only)
 
         except Exception as exc:

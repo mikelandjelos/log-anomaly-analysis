@@ -20,6 +20,7 @@ services:
       - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards/files:/var/lib/grafana/dashboards:ro
+      - ./grafana/alerting:/etc/grafana/provisioning/alerting:ro
     ports:
       - "3000:3000"
     depends_on:
