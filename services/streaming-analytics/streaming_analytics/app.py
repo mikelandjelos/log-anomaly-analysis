@@ -64,6 +64,9 @@ LOKI_PUSH_URL = os.environ.get(
 LOKI_QUERY = os.environ.get("LOKI_QUERY", '{datastream="bgl"}')
 DATASTREAM = os.environ.get("DATASTREAM", "bgl")
 
+# Push timestamp mode: "ingest" (now) or "event" (WindowEnd)
+PUSH_TS_MODE = os.environ.get("PUSH_TS_MODE", "ingest").strip().lower()
+
 TAIL_LIMIT = int(os.environ.get("LOKI_TAIL_LIMIT", "500"))
 TAIL_DELAY_FOR = int(os.environ.get("LOKI_TAIL_DELAY_FOR", "1"))
 
@@ -166,12 +169,39 @@ def _parse_event_ts(val: Any) -> Optional[datetime]:
     return None
 
 
+def _ts_ns_for_push(event_ts: Any) -> str:
+    """Choose the sample timestamp to use when pushing to Loki.
+
+    - ingest: use current time (avoids Loki "too old" rejections)
+    - event: use the event window end time
+    """
+    if PUSH_TS_MODE == "event":
+        ts = event_ts
+        if isinstance(ts, datetime):
+            return str(int(ts.timestamp() * 1e9))
+        try:
+            dt = datetime.fromisoformat(str(ts))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return str(int(dt.timestamp() * 1e9))
+        except Exception:
+            pass
+    # Default: ingestion time (now)
+    return str(int(datetime.now(tz=timezone.utc).timestamp() * 1e9))
+
+
 async def _push_anomalies_to_loki(anom_df: pl.DataFrame) -> None:
     if anom_df.is_empty():
         return
     # Build a single stream with labels {datastream, type=anomaly}
     labels = {"datastream": DATASTREAM, "type": "anomaly"}
     values = []
+    def _json_default(obj: Any) -> str:
+        if isinstance(obj, datetime):
+            dt = obj.astimezone(timezone.utc)
+            return dt.isoformat().replace("+00:00", "Z")
+        return str(obj)
+
     for row in anom_df.iter_rows(named=True):
         payload: Dict[str, Any] = {
             "Window": row.get("Window"),
@@ -186,16 +216,20 @@ async def _push_anomalies_to_loki(anom_df: pl.DataFrame) -> None:
                 payload["AnomalyScore_T2"] = float(row.get("AnomalyScore_T2") or 0.0)
             except Exception:
                 pass
-        # Use WindowEnd as the event timestamp
-        ts = row.get("WindowEnd")
-        if isinstance(ts, datetime):
-            ns = int(ts.timestamp() * 1e9)
-        else:
+        # include thresholds if present for plotting
+        if "SPE_threshold" in anom_df.columns:
             try:
-                ns = int(datetime.fromisoformat(str(ts)).timestamp() * 1e9)
+                payload["SPE_threshold"] = float(row.get("SPE_threshold") or 0.0)
             except Exception:
-                ns = int(datetime.now(tz=timezone.utc).timestamp() * 1e9)
-        values.append([str(ns), json.dumps(payload)])
+                pass
+        if "T2_threshold" in anom_df.columns:
+            try:
+                payload["T2_threshold"] = float(row.get("T2_threshold") or 0.0)
+            except Exception:
+                pass
+        # Use WindowEnd as the event timestamp
+        ns = _ts_ns_for_push(row.get("WindowEnd"))
+        values.append([ns, json.dumps(payload, default=_json_default)])
 
     body = {"streams": [{"stream": labels, "values": values}]}
     try:
@@ -205,6 +239,53 @@ async def _push_anomalies_to_loki(anom_df: pl.DataFrame) -> None:
                 logger.warning("Loki push failed ({}): {}", resp.status_code, resp.text)
     except Exception as exc:
         logger.warning("Failed to push anomalies to Loki: {}", exc)
+
+
+async def _push_scores_to_loki(score_df: pl.DataFrame) -> None:
+    """Push per-window scores (timeline) to Loki.
+
+    Labels: {datastream, type=score}
+    Line JSON: Window, WindowStart, WindowEnd, LogCount, AnomalyScore_SPE, (optional AnomalyScore_T2), IsAnomaly
+    Sample ts: WindowEnd (event-time)
+    """
+    if score_df.is_empty():
+        return
+
+    labels = {"datastream": DATASTREAM, "type": "score"}
+    values = []
+
+    def _json_default(obj: Any) -> str:
+        if isinstance(obj, datetime):
+            dt = obj.astimezone(timezone.utc)
+            return dt.isoformat().replace("+00:00", "Z")
+        return str(obj)
+
+    for row in score_df.iter_rows(named=True):
+        payload: Dict[str, Any] = {
+            "Window": row.get("Window"),
+            "WindowStart": row.get("WindowStart"),
+            "WindowEnd": row.get("WindowEnd"),
+            "LogCount": int(row.get("LogCount") or 0),
+            "AnomalyScore_SPE": float(row.get("AnomalyScore_SPE") or 0.0),
+            "IsAnomaly": bool(row.get("IsAnomaly") or False),
+        }
+        if "AnomalyScore_T2" in score_df.columns:
+            try:
+                payload["AnomalyScore_T2"] = float(row.get("AnomalyScore_T2") or 0.0)
+            except Exception:
+                pass
+
+        ns = _ts_ns_for_push(row.get("WindowEnd"))
+        values.append([ns, json.dumps(payload, default=_json_default)])
+
+    body = {"streams": [{"stream": labels, "values": values}]}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(LOKI_PUSH_URL, json=body)
+            if resp.status_code >= 400:
+                logger.warning("Loki push (scores) failed ({}): {}", resp.status_code, resp.text)
+    except Exception as exc:
+        logger.warning("Failed to push scores to Loki: {}", exc)
 
 
 async def _tail_loop() -> None:
@@ -264,30 +345,45 @@ async def _tail_loop() -> None:
                                 if not state.scorer.warmed:
                                     state.scorer.partial_fit_warmup(X)
                                 else:
+                                    # Score all windows in this flush
+                                    # Gather thresholds once per flush
+                                    spe_thr = getattr(state.scorer, "spe_threshold", None)
+                                    t2_thr = getattr(state.scorer, "_t2_threshold", None)
                                     try:
                                         S, T2, yhat = state.scorer.score(X)  # type: ignore[misc]
-                                        anom_dict: Dict[str, Any] = {
+                                        n = len(S)
+                                        result_dict: Dict[str, Any] = {
                                             "Window": feat_df["Window"],
                                             "WindowStart": feat_df["WindowStart"],
                                             "WindowEnd": feat_df["WindowEnd"],
                                             "LogCount": feat_df["LogCount"],
                                             "AnomalyScore_SPE": S,
                                             "AnomalyScore_T2": T2,
+                                            "SPE_threshold": [float(spe_thr)] * n if isinstance(spe_thr, float) else [None] * n,
+                                            "T2_threshold": [float(t2_thr)] * n if isinstance(t2_thr, float) else [None] * n,
                                             "IsAnomaly": yhat,
                                         }
                                     except Exception:
                                         S, yhat = state.scorer.score(X)  # type: ignore[misc]
-                                        anom_dict = {
+                                        n = len(S)
+                                        result_dict = {
                                             "Window": feat_df["Window"],
                                             "WindowStart": feat_df["WindowStart"],
                                             "WindowEnd": feat_df["WindowEnd"],
                                             "LogCount": feat_df["LogCount"],
                                             "AnomalyScore_SPE": S,
+                                            "SPE_threshold": [float(spe_thr)] * n if isinstance(spe_thr, float) else [None] * n,
                                             "IsAnomaly": yhat,
                                         }
-                                    anom_df = pl.DataFrame(anom_dict)
-                                    state.total_anomalies += int(yhat.sum())
-                                    await _push_anomalies_to_loki(anom_df)
+                                    result_df = pl.DataFrame(result_dict)
+                                    # Push timeline scores for every window after warmup
+                                    await _push_scores_to_loki(result_df)
+                                    # Also push anomalies-only stream for dashboards
+                                    if "IsAnomaly" in result_df.columns:
+                                        anom_only = result_df.filter(pl.col("IsAnomaly") == True)
+                                        if not anom_only.is_empty():
+                                            state.total_anomalies += int(anom_only["IsAnomaly"].sum())
+                                            await _push_anomalies_to_loki(anom_only)
 
         except Exception as exc:
             logger.warning("Tail connection error: {}", exc)
