@@ -1,0 +1,33 @@
+preprocessing:
+  log_pattern: '^(?P<Label>\S+)\s+(?P<Epoch>\d+)\s+(?P<Date>\d{4}\.\d{2}\.\d{2})\s+(?P<Node>\S+)\s+(?P<Timestamp>\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}\.\d{6})\s+(?P<Source>\S+)\s+(?P<Subsystem>\S+)\s+(?P<LogLevel>\S+)\s+(?P<Content>.+)$'
+  timestamp_format: "%Y-%m-%d-%H.%M.%S.%f"
+  strict_mode: true
+  require_timestamps: true
+
+parsing:
+  similarity_threshold: 0.5
+  depth: 4
+  max_children: 150
+  max_clusters: 2048
+  extra_delimiters: ["_", "-", ".", ":", "/"]
+  masking_rules:
+    - regex_pattern: r"core\.\d+"
+      mask_with: "CORE"
+  mask_prefix: "<:"
+  mask_suffix: ":>"
+
+accumulator:
+  window_size: "10m"
+  allowed_lateness: "0s"
+  hash_bins: 2048
+  hash_signed: false
+  normalize: "freq"
+  add_volume_feature: false
+
+scorer:
+  variance_threshold: 0.9
+  alpha: 0.001
+  use_scaling: true
+  warmup_windows: 4000
+  max_components: 128
+  min_residual_eigs: 64

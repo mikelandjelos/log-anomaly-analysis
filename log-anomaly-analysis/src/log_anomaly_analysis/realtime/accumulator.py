@@ -52,13 +52,15 @@ def _stable_hash(text: str, seed: int = 0) -> int:
 
 @dataclass
 class AccumulatorConfig:
+    # Defaults aligned with examples/notebooks/bgl_realtime_rtclasses.ipynb
     window_size: str = "10m"
     allowed_lateness: str = "0s"
-    hash_bins: int = 4096
-    hash_signed: bool = True
-    # NEW:
-    normalize: str = "none"  # "none" | "freq" | "l2"
-    add_volume_feature: bool = False  # add __log_volume column
+    hash_bins: int = 2048
+    hash_signed: bool = False
+    # normalization for hashed features per window: "none" | "freq" | "l2"
+    normalize: str = "freq"
+    # optional additional feature channel with log volume
+    add_volume_feature: bool = False
 
 
 class Accumulator:
@@ -74,21 +76,32 @@ class Accumulator:
     """
 
     def __init__(self, config: AccumulatorConfig | Dict | None = None):
+        """Initialize accumulator with a config dict or dataclass.
+
+        Supports both dict input (like other configurable components) and the
+        AccumulatorConfig dataclass. Missing keys fall back to sensible
+        defaults used in the reference notebook.
+        """
         if config is None:
             config = AccumulatorConfig()
         elif isinstance(config, dict):
+            # Accept dict input to match component-style config loading
             config = AccumulatorConfig(**config)
 
+        # Duration settings
         self.wtd = _parse_duration(config.window_size)
         self.ltd = _parse_duration(config.allowed_lateness)
-        self.B = int(config.hash_bins)
+        # Hashing settings
+        self.B = int(max(1024, int(config.hash_bins)))
         self.signed = bool(config.hash_signed)
-        self.normalize = config.normalize.lower()
+        # Normalization settings
+        self.normalize = str(config.normalize).lower().strip()
         assert self.normalize in {
             "none",
             "freq",
             "l2",
-        }, "normalize must be none|freq|l2"
+        }, "normalize must be one of: none|freq|l2"
+        # Extra feature channel
         self.add_volume_feature = bool(config.add_volume_feature)
 
         self._bins: Dict[datetime, np.ndarray] = {}

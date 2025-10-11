@@ -91,3 +91,33 @@ class PipelineConfig:
     windowing: WindowingConfig
     anomaly_detection: AnomalyDetectionConfig
     output: OutputConfig
+
+
+@dataclass
+class AccumulatorRuntimeConfig:
+    """Realtime accumulator configuration (hashed features in fixed windows).
+
+    Defaults aligned with examples/notebooks/bgl_realtime_rtclasses.ipynb
+    """
+
+    window_size: str = "10m"
+    allowed_lateness: str = "0s"
+    hash_bins: int = 2048
+    hash_signed: bool = False
+    normalize: str = "freq"  # one of: none|freq|l2
+    add_volume_feature: bool = False
+
+
+@dataclass
+class StreamingScorerConfig:
+    """Streaming PCA scorer configuration.
+
+    Defaults aligned with examples/notebooks/bgl_realtime_rtclasses.ipynb
+    """
+
+    variance_threshold: float = 0.90
+    alpha: float = 0.001
+    use_scaling: bool = True
+    warmup_windows: int = 4000
+    max_components: int = 128
+    min_residual_eigs: int = 64

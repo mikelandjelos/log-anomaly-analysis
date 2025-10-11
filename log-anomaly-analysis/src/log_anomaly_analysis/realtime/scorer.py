@@ -62,18 +62,25 @@ def _jm_spe_threshold(eigs_resid: np.ndarray, alpha: float) -> float:
 
 @dataclass
 class PCAScorerConfig:
+    # Defaults aligned with examples/notebooks/bgl_realtime_rtclasses.ipynb
     variance_threshold: float = 0.90
-    alpha: float = 0.01  # SPE tail probability
+    alpha: float = 0.001  # SPE tail probability
     use_scaling: bool = True
-    warmup_windows: int = 5000
-    max_components: Optional[int] = 512
-    min_residual_eigs: int = 10  # ensure residual has at least this many eigenvalues
+    warmup_windows: int = 4000
+    max_components: Optional[int] = 128
+    # ensure residual has at least this many eigenvalues
+    min_residual_eigs: int = 64
 
 
 class StreamingPCAScorer:
     """Incremental PCA scorer with warmup + freeze, SPE-only."""
 
     def __init__(self, config: PCAScorerConfig | dict | None = None):
+        """Initialize PCA scorer with a config dict or dataclass.
+
+        Accepts dict input to mirror other components' config loading. Missing
+        keys fall back to sensible defaults used in the reference notebook.
+        """
         if config is None:
             config = PCAScorerConfig()
         elif isinstance(config, dict):
