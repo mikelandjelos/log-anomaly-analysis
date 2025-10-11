@@ -20,7 +20,7 @@ services:
       - --port
       - "5044"
       - --speed
-      - "100000"
+      - "50000"
     depends_on:
       logstash:
         condition: service_started

@@ -1,0 +1,16 @@
+accumulator:
+  window_size: "10m"
+  allowed_lateness: "0s"
+  hash_bins: 2048
+  hash_signed: false
+  normalize: "freq"
+  add_volume_feature: false
+
+scorer:
+  variance_threshold: 0.9
+  alpha: 0.001
+  use_scaling: true
+  warmup_windows: 4000
+  max_components: 128
+  min_residual_eigs: 64
+

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from time import time_ns
@@ -29,6 +30,15 @@ def build_components(config_path: Path) -> Dict[str, object]:
     parser = TemplateParserComponent(cfg.parsing.__dict__)
     return {"preprocessor": preprocessor, "parser": parser}
 
+
+LOGURU_LEVEL = os.environ.get("LOGURU_LEVEL", "WARNING").upper()
+try:
+    logger.remove()
+except Exception:
+    pass
+logger.add(
+    sys.stderr, level=LOGURU_LEVEL, enqueue=True, backtrace=False, diagnose=False
+)
 
 app = FastAPI(title="Drain3 Service")
 component_cache: Dict[str, Dict[str, object]] = {}

@@ -36,7 +36,7 @@ services:
     volumes:
       - ./configs/parsing:/configs:ro
     environment:
-      - LOGURU_LEVEL=INFO
+      - LOGURU_LEVEL=WARNING
       - LOKI_URL=http://loki:3100/loki/api/v1/push
     ports:
       - "8000:8000"
@@ -62,21 +62,13 @@ services:
     build:
       context: ..
       dockerfile: services/streaming-analytics/Dockerfile
+    volumes:
+      - ./configs/realtime:/configs:ro
     environment:
+      - LOGURU_LEVEL=INFO
       - LOKI_BASE_URL=http://loki:3100
       - LOKI_QUERY={datastream="bgl"}
-      - LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
       - DATASTREAM=bgl
-      - ACC_WINDOW_SIZE=10m
-      - ACC_ALLOWED_LATENESS=0s
-      - ACC_HASH_BINS=4096
-      - ACC_HASH_SIGNED=true
-      - SCORER_VARIANCE_THRESHOLD=0.95
-      - SCORER_ALPHA=0.001
-      - SCORER_USE_SCALING=true
-      - SCORER_WARMUP_WINDOWS=100
-      - SCORER_MAX_COMPONENTS=64
-      - SCORER_MIN_RESIDUAL_EIGS=32
     depends_on:
       - loki
     ports:

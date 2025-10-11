@@ -1,3 +1,5 @@
 http.host: "0.0.0.0"
 log.level: info
-pipeline.workers: 4
+pipeline.workers: 8
+pipeline.batch.size: 1000
+pipeline.batch.delay: 50

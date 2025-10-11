@@ -6,8 +6,8 @@ import math
 import os
 import signal
 import sys
-from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -15,9 +15,12 @@ import httpx
 import polars as pl
 import websockets
 from fastapi import FastAPI
+import yaml
 from log_anomaly_analysis.realtime import Accumulator, StreamingPCAScorer
 from loguru import logger
 from pydantic import BaseModel
+
+CONFIG_DIR = Path("/configs")
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -25,26 +28,6 @@ def _bool_env(name: str, default: bool) -> bool:
     if v is None:
         return default
     return v.lower() in {"1", "true", "yes", "on"}
-
-
-@dataclass
-class AccCfg:
-    window_size: str = os.environ.get("ACC_WINDOW_SIZE", "10m")
-    allowed_lateness: str = os.environ.get("ACC_ALLOWED_LATENESS", "0s")
-    hash_bins: int = int(os.environ.get("ACC_HASH_BINS", "4096"))
-    hash_signed: bool = _bool_env("ACC_HASH_SIGNED", True)
-
-
-@dataclass
-class ScorerCfg:
-    variance_threshold: float = float(
-        os.environ.get("SCORER_VARIANCE_THRESHOLD", "0.90")
-    )
-    alpha: float = float(os.environ.get("SCORER_ALPHA", "0.001"))
-    use_scaling: bool = _bool_env("SCORER_USE_SCALING", True)
-    warmup_windows: int = int(os.environ.get("SCORER_WARMUP_WINDOWS", "1000"))
-    max_components: int = int(os.environ.get("SCORER_MAX_COMPONENTS", "512"))
-    min_residual_eigs: int = int(os.environ.get("SCORER_MIN_RESIDUAL_EIGS", "64"))
 
 
 class Stats(BaseModel):
@@ -58,9 +41,7 @@ class Stats(BaseModel):
 
 
 LOKI_BASE_URL = os.environ.get("LOKI_BASE_URL", "http://loki:3100")
-LOKI_PUSH_URL = os.environ.get(
-    "LOKI_PUSH_URL", f"{LOKI_BASE_URL.rstrip('/')}/loki/api/v1/push"
-)
+LOKI_PUSH_URL = f"{LOKI_BASE_URL.rstrip('/')}/loki/api/v1/push"
 LOKI_QUERY = os.environ.get("LOKI_QUERY", '{datastream="bgl"}')
 DATASTREAM = os.environ.get("DATASTREAM", "bgl")
 
@@ -76,12 +57,54 @@ app = FastAPI(title="Streaming Analytics Service")
 
 class ServiceState:
     def __init__(self) -> None:
-        self.acc = Accumulator(asdict(AccCfg()))
-        self.scorer = StreamingPCAScorer(asdict(ScorerCfg()))
+        acc_cfg, scorer_cfg = self._load_runtime_configs(DATASTREAM)
+        self.acc = Accumulator(acc_cfg)
+        self.scorer = StreamingPCAScorer(scorer_cfg)
         self.total_logs = 0
         self.total_windows = 0
         self.total_anomalies = 0
         self.stop_event = asyncio.Event()
+
+    @staticmethod
+    def _resolve_config(stream: str) -> Optional[Path]:
+        direct = CONFIG_DIR / f"{stream}.yaml"
+        if direct.exists():
+            return direct
+        # try case-insensitive / prefix match
+        for pat in (f"{stream}*.yaml", f"{stream.upper()}*.yaml", f"{stream.lower()}*.yaml"):
+            candidates = list(CONFIG_DIR.glob(pat))
+            if candidates:
+                return candidates[0]
+        return None
+
+    @classmethod
+    def _load_runtime_configs(cls, stream: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        cfg_file = cls._resolve_config(stream)
+        if cfg_file and cfg_file.exists():
+            try:
+                with cfg_file.open("r", encoding="utf-8") as fh:
+                    raw = yaml.safe_load(fh) or {}
+                acc_cfg = dict(raw.get("accumulator", {}))
+                scorer_cfg = dict(raw.get("scorer", {}))
+                logger.info(
+                    "Loaded analytics config for '%s' from %s", stream, cfg_file.name
+                )
+                return acc_cfg, scorer_cfg
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load analytics config for '%s' at %s: %s. Using defaults.",
+                    stream,
+                    cfg_file,
+                    exc,
+                )
+
+        # Fallback to library defaults (aligned with notebook)
+        logger.warning(
+            "Analytics config for '%s' not found under %s; using defaults.",
+            stream,
+            CONFIG_DIR,
+        )
+        return {}, {}
 
     def stats(self) -> Stats:
         spe_th = getattr(self.scorer, "spe_threshold", float("inf"))
