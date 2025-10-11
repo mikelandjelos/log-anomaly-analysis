@@ -2,7 +2,7 @@
 Incremental PCA (streaming) scorer using SPE (squared prediction error).
 
 Warmup phase:
-- Incrementally fit StandardScaler (optional) and IncrementalPCA via partial_fit
+- Incrementally fit StandardScaler and IncrementalPCA via partial_fit
 - After `warmup_windows` rows, freeze the model
 - Select k via cumulative variance threshold
 - Compute SPE threshold using Jackson–Mudholkar approximation with `alpha`
@@ -54,7 +54,7 @@ def _jm_spe_threshold(eigs_resid: np.ndarray, alpha: float) -> float:
     z_alpha = float(norm.ppf(1.0 - alpha))
     term = (
         1.0
-        + (z_alpha * np.sqrt(2.0 * theta2) * (h0**2)) / theta1
+        + (z_alpha * np.sqrt(2.0 * theta2) * h0) / theta1
         + (theta2 * h0 * (h0 - 1.0)) / (theta1**2)
     )
     return float(theta1 * (term ** (1.0 / h0)))
@@ -127,7 +127,7 @@ class StreamingPCAScorer:
         if X.size == 0:
             return
         if self._scaler is not None:
-            self._scaler.partial_fit(X)
+            self._scaler = self._scaler.partial_fit(X)
             X = self._scaler.transform(X)
 
         X = X.astype(np.float32, copy=False)
@@ -278,18 +278,20 @@ class StreamingPCAScorer:
         assert self._ipca is not None
         Xt = (
             self._scaler.transform(X).astype(np.float32)
-            if self._scaler is not None
+            if self._scaler
             else X.astype(np.float32)
         )
-
         P = self._ipca.components_[: self._k]
-        mu = self._ipca.mean_
-        S = _spe_scores(Xt, P, mu)
-        # T^2 using retained eigenvalues
-        lam = np.maximum(
-            getattr(self._ipca, "explained_variance_", np.ones(self._k)[: self._k]),
-            1e-12,
+        mu = (
+            np.zeros_like(self._ipca.mean_, dtype=np.float32)
+            if self._scaler
+            else self._ipca.mean_
         )
-        T2 = np.sum(((Xt - mu) @ P.T) ** 2 / lam[: self._k], axis=1).astype(np.float32)
+        S = _spe_scores(Xt, P, mu)
+
+        T = (Xt - mu) @ P.T
+        lam = np.maximum(self._ipca.explained_variance_[: self._k], 1e-12)
+        T2 = np.sum((T**2) / lam, axis=1, dtype=np.float32)
+
         flags = (S > self._spe_threshold) | (T2 > self._t2_threshold)
         return S.astype(np.float32), T2, flags

@@ -4,32 +4,27 @@ Tumbling window accumulator with hashed features.
 Design goals:
 - Epoch-aligned fixed windows (e.g., 10m), with allowed lateness.
 - Dense hashed feature vector per window (feature hashing on TemplateId/EventTemplate).
-- Optional signed hashing and per-window normalization by log count.
-
-This mirrors the notebook logic from examples/notebooks/bgl_realtime_streaming.ipynb
-but removes ground-truth labels and focuses on production streaming usage.
+- Optional signed hashing and per-window normalization by log count (frequency) or L2.
 """
 
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Sequence
+from datetime import datetime, timedelta
+from typing import Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 import polars as pl
 
 
-def _parse_iso8601(ts: str) -> datetime | None:
+def _parse_iso8601(ts: str) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        # Handle trailing 'Z'
         if ts.endswith("Z"):
             ts = ts[:-1] + "+00:00"
-        dt = datetime.fromisoformat(ts)
-        return dt
+        return datetime.fromisoformat(ts)
     except Exception:
         return None
 
@@ -41,17 +36,13 @@ def _parse_duration(spec: str) -> timedelta:
         unit = spec[-1].lower()
         val = float(spec[:-1])
     except Exception:
-        # fallback: interpret as seconds
         return timedelta(seconds=float(spec))
-    if unit == "s":
-        return timedelta(seconds=val)
-    if unit == "m":
-        return timedelta(minutes=val)
-    if unit == "h":
-        return timedelta(hours=val)
-    if unit == "d":
-        return timedelta(days=val)
-    return timedelta(seconds=val)
+    return {
+        "s": timedelta(seconds=val),
+        "m": timedelta(minutes=val),
+        "h": timedelta(hours=val),
+        "d": timedelta(days=val),
+    }.get(unit, timedelta(seconds=val))
 
 
 def _stable_hash(text: str, seed: int = 0) -> int:
@@ -65,18 +56,21 @@ class AccumulatorConfig:
     allowed_lateness: str = "0s"
     hash_bins: int = 4096
     hash_signed: bool = True
+    # NEW:
+    normalize: str = "none"  # "none" | "freq" | "l2"
+    add_volume_feature: bool = False  # add __log_volume column
 
 
 class Accumulator:
-    """Epoch-aligned tumbling window accumulator with hashed features.
+    """Tumbling window accumulator with hashed features.
 
     - update_chunk(ts_iter, template_iter): feed new parsed logs
     - finalize_ready(): close and emit windows complete per allowed lateness
 
-    Returned dataframes:
+    Returns (windowed_df, features_df):
       windowed_df: [Window, WindowStart, WindowEnd, LogCount]
-      features_df: windowed metadata + string columns "0".."B-1" with counts
-                   (optionally normalized by LogCount)
+      features_df: window metadata + string columns "0".."B-1" (normalized per config)
+                   and optional "__log_volume" if add_volume_feature=True
     """
 
     def __init__(self, config: AccumulatorConfig | Dict | None = None):
@@ -89,13 +83,19 @@ class Accumulator:
         self.ltd = _parse_duration(config.allowed_lateness)
         self.B = int(config.hash_bins)
         self.signed = bool(config.hash_signed)
-        # Always use raw counts; no per-window normalization here.
+        self.normalize = config.normalize.lower()
+        assert self.normalize in {
+            "none",
+            "freq",
+            "l2",
+        }, "normalize must be none|freq|l2"
+        self.add_volume_feature = bool(config.add_volume_feature)
 
         self._bins: Dict[datetime, np.ndarray] = {}
         self._counts: Dict[datetime, int] = {}
-        self._max_ts: datetime | None = None
+        self._max_ts: Optional[datetime] = None
 
-    def _to_dt(self, ts: datetime | str | None) -> datetime | None:
+    def _to_dt(self, ts: datetime | str | None) -> Optional[datetime]:
         if ts is None:
             return None
         if isinstance(ts, datetime):
@@ -103,10 +103,8 @@ class Accumulator:
         return _parse_iso8601(ts)
 
     def _win_key(self, ts: datetime) -> datetime:
-        # epoch-aligned tumbling windows
-        # Preserve naive vs aware consistently to avoid mixing types
         tz = ts.tzinfo
-        epoch = datetime(1970, 1, 1, tzinfo=tz) if tz is not None else datetime(1970, 1, 1)
+        epoch = datetime(1970, 1, 1, tzinfo=tz) if tz else datetime(1970, 1, 1)
         s = (ts - epoch).total_seconds()
         size = self.wtd.total_seconds() or 1.0
         return epoch + timedelta(seconds=int(s // size) * size)
@@ -143,52 +141,24 @@ class Accumulator:
             return False
         return k + self.wtd <= self._max_ts - self.ltd
 
-    def finalize_ready(self) -> tuple[pl.DataFrame, pl.DataFrame]:
-        """Close and emit all windows complete per allowed lateness.
+    def _normalize_row(self, vec: np.ndarray, log_count: int) -> np.ndarray:
+        v = vec.astype(np.float32, copy=False)
+        if self.normalize == "freq":
+            den = float(max(log_count, 1))
+            v = v / den
+        elif self.normalize == "l2":
+            nrm = float(np.linalg.norm(v))
+            if nrm > 0:
+                v = v / nrm
+        # "none": return raw counts
+        return v
 
-        Returns (windowed_df, features_df). Empty frames if none are ready.
-        """
+    def finalize_ready(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         ready = [k for k in self._bins.keys() if self._should_close(k)]
         if not ready:
             return pl.DataFrame(), pl.DataFrame()
 
         ready.sort()
-        win_rows: List[Dict[str, object]] = []
-        feat_rows: List[Dict[str, object]] = []
-
-        for k in ready:
-            bins = self._bins.pop(k)
-            cnt = self._counts.pop(k, 0)
-
-            row_meta = {
-                "Window": k,
-                "WindowStart": k,
-                "WindowEnd": k + self.wtd,
-                "LogCount": cnt,
-            }
-            win_rows.append(row_meta)
-
-            # materialize hashed counts (raw counts)
-            vec = bins.astype(np.float32, copy=False)
-
-            row_feat = dict(row_meta)
-            for i, v in enumerate(vec.tolist()):
-                row_feat[str(i)] = v
-            feat_rows.append(row_feat)
-
-        windowed = pl.DataFrame(win_rows) if win_rows else pl.DataFrame()
-        features = pl.DataFrame(feat_rows) if feat_rows else pl.DataFrame()
-        return windowed, features
-
-    def finalize_all(self) -> tuple[pl.DataFrame, pl.DataFrame]:
-        """Force-close and emit all windows regardless of lateness.
-
-        Useful at end-of-stream to flush the remainder.
-        """
-        if not self._bins:
-            return pl.DataFrame(), pl.DataFrame()
-
-        ready = sorted(self._bins.keys())
         win_rows: List[Dict[str, object]] = []
         feat_rows: List[Dict[str, object]] = []
 
@@ -204,10 +174,46 @@ class Accumulator:
             }
             win_rows.append(meta)
 
-            vec = bins.astype(np.float32, copy=False)
+            vec = self._normalize_row(bins, cnt)
+            row = dict(meta)
+            # hashed features
+            vals = vec.tolist()
+            for i, v in enumerate(vals):
+                row[str(i)] = v
+            # optional volume channel
+            if self.add_volume_feature:
+                row["__log_volume"] = float(np.log1p(cnt))
+
+            feat_rows.append(row)
+
+        windowed = pl.DataFrame(win_rows) if win_rows else pl.DataFrame()
+        features = pl.DataFrame(feat_rows) if feat_rows else pl.DataFrame()
+        return windowed, features
+
+    def finalize_all(self) -> tuple[pl.DataFrame, pl.DataFrame]:
+        if not self._bins:
+            return pl.DataFrame(), pl.DataFrame()
+        ready = sorted(self._bins.keys())
+        win_rows: List[Dict[str, object]] = []
+        feat_rows: List[Dict[str, object]] = []
+
+        for k in ready:
+            bins = self._bins.pop(k)
+            cnt = self._counts.pop(k, 0)
+            meta = {
+                "Window": k,
+                "WindowStart": k,
+                "WindowEnd": k + self.wtd,
+                "LogCount": cnt,
+            }
+            win_rows.append(meta)
+
+            vec = self._normalize_row(bins, cnt)
             row = dict(meta)
             for i, v in enumerate(vec.tolist()):
                 row[str(i)] = v
+            if self.add_volume_feature:
+                row["__log_volume"] = float(np.log1p(cnt))
             feat_rows.append(row)
 
         windowed = pl.DataFrame(win_rows) if win_rows else pl.DataFrame()
